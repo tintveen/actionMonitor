@@ -4,11 +4,16 @@ import SwiftUI
 @main
 struct DeployBarApp: App {
     @StateObject private var statusStore: StatusStore
+    private let settingsWindowController: SettingsWindowController
 
     init() {
         NSWindow.allowsAutomaticWindowTabbing = false
 
-        let store = StatusStore()
+        let settingsWindowController = SettingsWindowController()
+        let store = StatusStore(settingsPresenter: settingsWindowController)
+
+        settingsWindowController.store = store
+        self.settingsWindowController = settingsWindowController
         _statusStore = StateObject(wrappedValue: store)
 
         DispatchQueue.main.async {
@@ -18,7 +23,10 @@ struct DeployBarApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            MenuBarContentView(store: statusStore)
+            MenuBarContentView(
+                store: statusStore,
+                showSettingsWindow: settingsWindowController.showSettings
+            )
                 .frame(width: 360)
                 .onAppear {
                     statusStore.refreshNow()
@@ -27,10 +35,5 @@ struct DeployBarApp: App {
             MenuBarIconView(status: statusStore.combinedStatus)
         }
         .menuBarExtraStyle(.window)
-
-        Settings {
-            SettingsView(store: statusStore)
-                .frame(width: 420)
-        }
     }
 }

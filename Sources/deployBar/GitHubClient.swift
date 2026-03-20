@@ -1,5 +1,9 @@
 import Foundation
 
+protocol WorkflowRunFetching: Sendable {
+    func fetchLatestRun(for site: SiteConfig, token: String?) async throws -> WorkflowRun?
+}
+
 enum GitHubClientError: LocalizedError {
     case invalidResponse
     case unauthorized
@@ -111,7 +115,7 @@ struct WorkflowRun: Decodable, Equatable, Sendable {
     }
 }
 
-struct GitHubClient: Sendable {
+struct GitHubClient: WorkflowRunFetching {
     static let apiVersion = "2026-03-10"
 
     let session: URLSession

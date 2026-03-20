@@ -8,11 +8,11 @@ final class StatusStore: ObservableObject {
     @Published private(set) var bannerMessage: String?
     @Published private(set) var token: String
     @Published private(set) var credentialMessage: String?
-    @Published private(set) var settingsPresentationRequestCount = 0
 
     private let sites: [SiteConfig]
-    private let client: GitHubClient
+    private let client: any WorkflowRunFetching
     private let credentialStore: any CredentialStore
+    private let settingsPresenter: any SettingsPresenting
     private var refreshLoopTask: Task<Void, Never>?
     private var refreshTask: Task<Void, Never>?
     private var didStart = false
@@ -21,13 +21,15 @@ final class StatusStore: ObservableObject {
 
     init(
         sites: [SiteConfig] = SiteConfig.monitoredSites,
-        client: GitHubClient = GitHubClient(),
-        credentialStore: any CredentialStore = KeychainCredentialStore()
+        client: any WorkflowRunFetching = GitHubClient(),
+        credentialStore: any CredentialStore = KeychainCredentialStore(),
+        settingsPresenter: any SettingsPresenting = NoOpSettingsPresenter()
     ) {
         let initialStates = sites.map(DeployState.placeholder(for:))
         self.sites = sites
         self.client = client
         self.credentialStore = credentialStore
+        self.settingsPresenter = settingsPresenter
         self.states = initialStates
         self.combinedStatus = CombinedStatus.reduce(initialStates)
 
@@ -179,6 +181,6 @@ final class StatusStore: ObservableObject {
     }
 
     private func openSettingsWindow() {
-        settingsPresentationRequestCount += 1
+        settingsPresenter.showSettings()
     }
 }

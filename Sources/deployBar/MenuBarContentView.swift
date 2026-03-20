@@ -3,9 +3,8 @@ import SwiftUI
 
 struct MenuBarContentView: View {
     @ObservedObject var store: StatusStore
-    @Environment(\.openSettings) private var openSettings
     @Environment(\.openURL) private var openURL
-    @State private var handledSettingsPresentationRequestCount = 0
+    let showSettingsWindow: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -36,7 +35,7 @@ struct MenuBarContentView: View {
                     .keyboardShortcut("r")
 
                     Button {
-                        openSettingsWindow()
+                        showSettingsWindow()
                     } label: {
                         Label("GitHub Settings", systemImage: "key.fill")
                     }
@@ -68,27 +67,8 @@ struct MenuBarContentView: View {
                 endPoint: .bottomTrailing
             )
         )
-        .onAppear {
-            presentSettingsIfNeeded()
-        }
-        .onChange(of: store.settingsPresentationRequestCount) { _, _ in
-            presentSettingsIfNeeded()
-        }
     }
 
-    private func presentSettingsIfNeeded() {
-        guard store.settingsPresentationRequestCount > handledSettingsPresentationRequestCount else {
-            return
-        }
-
-        handledSettingsPresentationRequestCount = store.settingsPresentationRequestCount
-        openSettingsWindow()
-    }
-
-    private func openSettingsWindow() {
-        NSApplication.shared.activate(ignoringOtherApps: true)
-        openSettings()
-    }
 }
 
 private struct BannerView: View {
