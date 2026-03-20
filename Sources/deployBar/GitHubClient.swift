@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 protocol WorkflowRunFetching: Sendable {
     func fetchLatestRun(for site: SiteConfig, token: String?) async throws -> WorkflowRun?

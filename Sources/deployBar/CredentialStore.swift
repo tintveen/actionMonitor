@@ -1,5 +1,4 @@
 import Foundation
-import Security
 
 protocol CredentialStore: Sendable {
     func loadToken() throws -> String?
@@ -8,8 +7,9 @@ protocol CredentialStore: Sendable {
 }
 
 enum CredentialStoreError: LocalizedError {
-    case unexpectedStatus(OSStatus)
+    case unexpectedStatus(Int)
     case invalidData
+    case unsupportedPlatform
 
     var errorDescription: String? {
         switch self {
@@ -17,9 +17,14 @@ enum CredentialStoreError: LocalizedError {
             return "Keychain access failed with status \(status)."
         case .invalidData:
             return "Keychain returned unreadable token data."
+        case .unsupportedPlatform:
+            return "Saving tokens is only supported by the macOS menu bar app."
         }
     }
 }
+
+#if canImport(Security)
+import Security
 
 struct KeychainCredentialStore: CredentialStore {
     private let service = "deployBar.github.token"
@@ -48,7 +53,7 @@ struct KeychainCredentialStore: CredentialStore {
         case errSecItemNotFound:
             return nil
         default:
-            throw CredentialStoreError.unexpectedStatus(status)
+            throw CredentialStoreError.unexpectedStatus(Int(status))
         }
     }
 
@@ -71,14 +76,14 @@ struct KeychainCredentialStore: CredentialStore {
 
             let insertStatus = SecItemAdd(insertQuery as CFDictionary, nil)
             guard insertStatus == errSecSuccess else {
-                throw CredentialStoreError.unexpectedStatus(insertStatus)
+                throw CredentialStoreError.unexpectedStatus(Int(insertStatus))
             }
 
             return
         }
 
         guard updateStatus == errSecSuccess else {
-            throw CredentialStoreError.unexpectedStatus(updateStatus)
+            throw CredentialStoreError.unexpectedStatus(Int(updateStatus))
         }
     }
 
@@ -91,7 +96,22 @@ struct KeychainCredentialStore: CredentialStore {
 
         let status = SecItemDelete(query as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw CredentialStoreError.unexpectedStatus(status)
+            throw CredentialStoreError.unexpectedStatus(Int(status))
         }
     }
 }
+#else
+struct KeychainCredentialStore: CredentialStore {
+    func loadToken() throws -> String? {
+        ProcessInfo.processInfo.environment["GITHUB_TOKEN"]
+    }
+
+    func saveToken(_ token: String) throws {
+        throw CredentialStoreError.unsupportedPlatform
+    }
+
+    func removeToken() throws {
+        throw CredentialStoreError.unsupportedPlatform
+    }
+}
+#endif
