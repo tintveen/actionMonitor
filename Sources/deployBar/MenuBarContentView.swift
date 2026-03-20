@@ -1,3 +1,4 @@
+#if canImport(AppKit) && canImport(SwiftUI)
 import AppKit
 import SwiftUI
 
@@ -228,3 +229,4 @@ private extension DeployStatus {
         }
     }
 }
+#endif

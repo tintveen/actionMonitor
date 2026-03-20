@@ -1,5 +1,4 @@
-import AppKit
-import SwiftUI
+import Foundation
 
 @MainActor
 protocol SettingsPresenting: Sendable {
@@ -9,6 +8,10 @@ protocol SettingsPresenting: Sendable {
 struct NoOpSettingsPresenter: SettingsPresenting {
     func showSettings() {}
 }
+
+#if canImport(AppKit) && canImport(SwiftUI)
+import AppKit
+import SwiftUI
 
 @MainActor
 final class SettingsWindowController: NSObject, SettingsPresenting {
@@ -59,3 +62,4 @@ final class SettingsWindowController: NSObject, SettingsPresenting {
         return window
     }
 }
+#endif
