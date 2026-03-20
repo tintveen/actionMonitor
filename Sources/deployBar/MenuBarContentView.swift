@@ -3,7 +3,9 @@ import SwiftUI
 
 struct MenuBarContentView: View {
     @ObservedObject var store: StatusStore
+    @Environment(\.openSettings) private var openSettings
     @Environment(\.openURL) private var openURL
+    @State private var handledSettingsPresentationRequestCount = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -26,20 +28,26 @@ struct MenuBarContentView: View {
 
             Divider()
 
-            HStack(spacing: 10) {
-                Button("Refresh now") {
-                    store.refreshNow()
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 10) {
+                    Button("Refresh now") {
+                        store.refreshNow()
+                    }
+                    .keyboardShortcut("r")
+
+                    Button {
+                        openSettingsWindow()
+                    } label: {
+                        Label("GitHub Settings", systemImage: "key.fill")
+                    }
                 }
-                .keyboardShortcut("r")
 
-                SettingsLink {
-                    Label("Configure GitHub Token", systemImage: "key.fill")
-                }
+                HStack {
+                    Spacer()
 
-                Spacer()
-
-                Button("Quit") {
-                    NSApplication.shared.terminate(nil)
+                    Button("Quit") {
+                        NSApplication.shared.terminate(nil)
+                    }
                 }
             }
 
@@ -60,6 +68,26 @@ struct MenuBarContentView: View {
                 endPoint: .bottomTrailing
             )
         )
+        .onAppear {
+            presentSettingsIfNeeded()
+        }
+        .onChange(of: store.settingsPresentationRequestCount) { _, _ in
+            presentSettingsIfNeeded()
+        }
+    }
+
+    private func presentSettingsIfNeeded() {
+        guard store.settingsPresentationRequestCount > handledSettingsPresentationRequestCount else {
+            return
+        }
+
+        handledSettingsPresentationRequestCount = store.settingsPresentationRequestCount
+        openSettingsWindow()
+    }
+
+    private func openSettingsWindow() {
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        openSettings()
     }
 }
 

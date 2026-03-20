@@ -4,43 +4,37 @@ import XCTest
 @MainActor
 final class StatusStoreTests: XCTestCase {
     func testStartPromptsForTokenWhenCredentialStoreIsEmpty() {
-        let settingsOpener = SettingsOpener()
         let store = StatusStore(
             sites: [],
-            credentialStore: TestCredentialStore(token: nil),
-            settingsWindowOpener: settingsOpener.open
+            credentialStore: TestCredentialStore(token: nil)
         )
 
         store.start()
 
-        XCTAssertEqual(settingsOpener.openCallCount, 1)
+        XCTAssertEqual(store.settingsPresentationRequestCount, 1)
     }
 
     func testStartOnlyPromptsOnceWhenTokenIsMissing() {
-        let settingsOpener = SettingsOpener()
         let store = StatusStore(
             sites: [],
-            credentialStore: TestCredentialStore(token: nil),
-            settingsWindowOpener: settingsOpener.open
+            credentialStore: TestCredentialStore(token: nil)
         )
 
         store.start()
         store.start()
 
-        XCTAssertEqual(settingsOpener.openCallCount, 1)
+        XCTAssertEqual(store.settingsPresentationRequestCount, 1)
     }
 
     func testStartDoesNotPromptWhenTokenExists() {
-        let settingsOpener = SettingsOpener()
         let store = StatusStore(
             sites: [],
-            credentialStore: TestCredentialStore(token: "github-token"),
-            settingsWindowOpener: settingsOpener.open
+            credentialStore: TestCredentialStore(token: "github-token")
         )
 
         store.start()
 
-        XCTAssertEqual(settingsOpener.openCallCount, 0)
+        XCTAssertEqual(store.settingsPresentationRequestCount, 0)
     }
 }
 
@@ -54,13 +48,4 @@ private struct TestCredentialStore: CredentialStore {
     func saveToken(_ token: String) throws {}
 
     func removeToken() throws {}
-}
-
-@MainActor
-private final class SettingsOpener {
-    private(set) var openCallCount = 0
-
-    func open() {
-        openCallCount += 1
-    }
 }

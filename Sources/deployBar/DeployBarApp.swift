@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 @main
@@ -5,6 +6,8 @@ struct DeployBarApp: App {
     @StateObject private var statusStore: StatusStore
 
     init() {
+        NSWindow.allowsAutomaticWindowTabbing = false
+
         let store = StatusStore()
         _statusStore = StateObject(wrappedValue: store)
 
