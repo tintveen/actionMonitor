@@ -14,7 +14,16 @@ let package = Package(
     ],
     targets: [
         .executableTarget(
-            name: "deployBar"
+            name: "deployBar",
+            linkerSettings: [
+                // Embed app metadata so AppKit can resolve Bundle.main.bundleIdentifier.
+                .unsafeFlags([
+                    "-Xlinker", "-sectcreate",
+                    "-Xlinker", "__TEXT",
+                    "-Xlinker", "__info_plist",
+                    "-Xlinker", "Support/Info.plist",
+                ], .when(platforms: [.macOS])),
+            ]
         ),
         .testTarget(
             name: "deployBarTests",
