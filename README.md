@@ -26,6 +26,16 @@ GITHUB_TOKEN=ghp_xxx swift run deployBar --live
 
 Auf Nicht-macOS-Plattformen liest `deployBar` den Token dafür aus `GITHUB_TOKEN`. Auf macOS bleibt die normale Keychain-Integration der Menüleisten-App unverändert.
 
+## Lokal auf macOS installieren
+
+Ohne Xcode kannst du `deployBar` als normale App nach `~/Applications` installieren:
+
+```bash
+./scripts/install-local.sh
+```
+
+Danach kannst du die App per Spotlight, Finder oder über die macOS-Login-Items starten. Wenn du eine neue Version aus dem Repo bauen willst, führe das Skript einfach erneut aus.
+
 ## Plattformverhalten
 
 - **macOS:** startet wie bisher die SwiftUI-Menüleisten-App.
