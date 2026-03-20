@@ -29,10 +29,23 @@ final class SettingsWindowController: NSObject, SettingsPresenting {
             .frame(width: 420, height: 280)
         let hostingController = NSHostingController(rootView: rootView)
 
+        if NSApp.activationPolicy() != .regular {
+            NSApp.setActivationPolicy(.regular)
+        }
+
         window.contentViewController = hostingController
+        NSApp.unhide(nil)
         NSApp.activate(ignoringOtherApps: true)
+        NSRunningApplication.current.activate(options: [.activateAllWindows])
         window.makeKeyAndOrderFront(nil)
+        window.makeMain()
         window.orderFrontRegardless()
+
+        if let initialFirstResponder = firstEditableView(in: hostingController.view) {
+            DispatchQueue.main.async {
+                window.makeFirstResponder(initialFirstResponder)
+            }
+        }
     }
 
     private func makeWindowIfNeeded(with store: StatusStore) -> NSWindow {
@@ -51,6 +64,7 @@ final class SettingsWindowController: NSObject, SettingsPresenting {
         )
 
         window.title = "GitHub Settings"
+        window.delegate = self
         window.isReleasedWhenClosed = false
         window.center()
         window.setContentSize(NSSize(width: 420, height: 280))
@@ -60,6 +74,32 @@ final class SettingsWindowController: NSObject, SettingsPresenting {
 
         self.window = window
         return window
+    }
+}
+
+private extension SettingsWindowController {
+    func firstEditableView(in view: NSView) -> NSView? {
+        if view is NSTextField {
+            return view
+        }
+
+        for subview in view.subviews {
+            if let editableSubview = firstEditableView(in: subview) {
+                return editableSubview
+            }
+        }
+
+        return nil
+    }
+}
+
+extension SettingsWindowController: NSWindowDelegate {
+    func windowWillClose(_ notification: Notification) {
+        guard NSApp.activationPolicy() != .accessory else {
+            return
+        }
+
+        NSApp.setActivationPolicy(.accessory)
     }
 }
 #endif
