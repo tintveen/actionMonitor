@@ -7,7 +7,10 @@ struct DeployBarApp: App {
     init() {
         let store = StatusStore()
         _statusStore = StateObject(wrappedValue: store)
-        store.start()
+
+        DispatchQueue.main.async {
+            store.start()
+        }
     }
 
     var body: some Scene {

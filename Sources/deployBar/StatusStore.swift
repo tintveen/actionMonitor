@@ -13,6 +13,7 @@ final class StatusStore: ObservableObject {
     private let sites: [SiteConfig]
     private let client: GitHubClient
     private let credentialStore: any CredentialStore
+    private let settingsWindowOpener: @MainActor @Sendable () -> Void
     private var refreshLoopTask: Task<Void, Never>?
     private var refreshTask: Task<Void, Never>?
     private var didStart = false
@@ -22,12 +23,14 @@ final class StatusStore: ObservableObject {
     init(
         sites: [SiteConfig] = SiteConfig.monitoredSites,
         client: GitHubClient = GitHubClient(),
-        credentialStore: any CredentialStore = KeychainCredentialStore()
+        credentialStore: any CredentialStore = KeychainCredentialStore(),
+        settingsWindowOpener: @escaping @MainActor @Sendable () -> Void = StatusStore.defaultSettingsWindowOpener
     ) {
         let initialStates = sites.map(DeployState.placeholder(for:))
         self.sites = sites
         self.client = client
         self.credentialStore = credentialStore
+        self.settingsWindowOpener = settingsWindowOpener
         self.states = initialStates
         self.combinedStatus = CombinedStatus.reduce(initialStates)
 
@@ -179,7 +182,12 @@ final class StatusStore: ObservableObject {
     }
 
     private func openSettingsWindow() {
-        NSApp.activate(ignoringOtherApps: true)
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        settingsWindowOpener()
+    }
+
+    private static let defaultSettingsWindowOpener: @MainActor @Sendable () -> Void = {
+        let application = NSApplication.shared
+        application.activate(ignoringOtherApps: true)
+        _ = application.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
     }
 }
