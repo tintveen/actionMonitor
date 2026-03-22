@@ -28,26 +28,22 @@ struct MenuBarContentView: View {
 
             Divider()
 
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 10) {
-                    Button("Refresh now") {
-                        store.refreshNow()
-                    }
-                    .keyboardShortcut("r")
+            HStack(spacing: 10) {
+                Button("Refresh now") {
+                    store.refreshNow()
+                }
+                .keyboardShortcut("r")
 
-                    Button {
-                        showSettingsWindow()
-                    } label: {
-                        Label("GitHub Settings", systemImage: "key.fill")
-                    }
+                Button {
+                    showSettingsWindow()
+                } label: {
+                    Label("GitHub Settings", systemImage: "key.fill")
                 }
 
-                HStack {
-                    Spacer()
+                Spacer(minLength: 0)
 
-                    Button("Quit") {
-                        NSApplication.shared.terminate(nil)
-                    }
+                Button("Quit") {
+                    NSApplication.shared.terminate(nil)
                 }
             }
 
