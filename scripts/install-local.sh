@@ -5,6 +5,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_NAME="DeployBar.app"
 APP_DIR="${HOME}/Applications/${APP_NAME}"
+LAUNCHER_PATH="/opt/homebrew/bin/deploybar"
 
 cd "${ROOT_DIR}"
 
@@ -22,5 +23,14 @@ mkdir -p "${APP_DIR}/Contents/MacOS"
 cp "${ROOT_DIR}/Support/Info.plist" "${APP_DIR}/Contents/Info.plist"
 cp "${BIN_PATH}" "${APP_DIR}/Contents/MacOS/deployBar"
 
+echo "Installing terminal launcher to ${LAUNCHER_PATH}..."
+mkdir -p "$(dirname "${LAUNCHER_PATH}")"
+cat > "${LAUNCHER_PATH}" <<EOF
+#!/usr/bin/env bash
+open "${APP_DIR}"
+EOF
+chmod +x "${LAUNCHER_PATH}"
+
 echo "Launch with: open \"${APP_DIR}\""
+echo "Terminal shortcut: deploybar"
 open "${APP_DIR}"

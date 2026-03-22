@@ -102,7 +102,7 @@ private struct SiteStatusCard: View {
             HStack(alignment: .center, spacing: 10) {
                 Image(systemName: state.status.symbolName)
                     .foregroundStyle(state.status.color)
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.system(size: 20, weight: .semibold))
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(state.site.displayName)
@@ -184,7 +184,7 @@ struct MenuBarIconView: View {
         Image(systemName: status.symbolName)
             .symbolRenderingMode(.palette)
             .foregroundStyle(status.color, status.color.opacity(0.3))
-            .font(.system(size: 15, weight: .semibold))
+            .font(.system(size: 17, weight: .semibold))
             .help(status.accessibilityLabel)
     }
 }

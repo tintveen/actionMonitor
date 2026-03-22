@@ -34,7 +34,15 @@ Ohne Xcode kannst du `deployBar` als normale App nach `~/Applications` installie
 ./scripts/install-local.sh
 ```
 
-Danach kannst du die App per Spotlight, Finder oder über die macOS-Login-Items starten. Wenn du eine neue Version aus dem Repo bauen willst, führe das Skript einfach erneut aus.
+Danach kannst du die App per Spotlight, Finder, `deploybar` im Terminal oder über die macOS-Login-Items starten. Wenn du eine neue Version aus dem Repo bauen willst, führe das Skript einfach erneut aus.
+
+Zum Entfernen der lokalen Installation:
+
+```bash
+./scripts/uninstall-local.sh
+```
+
+Das entfernt sowohl `~/Applications/DeployBar.app` als auch den Terminal-Shortcut unter `/opt/homebrew/bin/deploybar`.
 
 ## Plattformverhalten
 
