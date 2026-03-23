@@ -13,7 +13,7 @@ struct MenuBarContentView: View {
                 Text("Deploy Monitor")
                     .font(.system(size: 16, weight: .semibold, design: .rounded))
 
-                Text(store.isRefreshing ? "Refreshing GitHub Actions…" : "Watching your deploy workflows")
+                Text(statusSubtitle)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -22,8 +22,12 @@ struct MenuBarContentView: View {
                 BannerView(message: bannerMessage)
             }
 
-            ForEach(store.states) { state in
-                SiteStatusCard(state: state, openURL: openURL)
+            if store.workflows.isEmpty {
+                EmptyMenuStateView(openSettingsWindow: showSettingsWindow)
+            } else {
+                ForEach(store.states) { state in
+                    SiteStatusCard(state: state, openURL: openURL)
+                }
             }
 
             Divider()
@@ -33,11 +37,12 @@ struct MenuBarContentView: View {
                     store.refreshNow()
                 }
                 .keyboardShortcut("r")
+                .disabled(store.workflows.isEmpty)
 
                 Button {
                     showSettingsWindow()
                 } label: {
-                    Label("GitHub Settings", systemImage: "key.fill")
+                    Label("Settings", systemImage: "gearshape.fill")
                 }
 
                 Spacer(minLength: 0)
@@ -66,6 +71,13 @@ struct MenuBarContentView: View {
         )
     }
 
+    private var statusSubtitle: String {
+        if store.workflows.isEmpty {
+            return "Add a workflow to start monitoring GitHub Actions"
+        }
+
+        return store.isRefreshing ? "Refreshing GitHub Actions…" : "Watching your deploy workflows"
+    }
 }
 
 private struct BannerView: View {
@@ -93,6 +105,38 @@ private struct BannerView: View {
     }
 }
 
+private struct EmptyMenuStateView: View {
+    let openSettingsWindow: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("No workflows configured")
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
+
+            Text("Open Settings and add your first GitHub Actions workflow to monitor.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            Button {
+                openSettingsWindow()
+            } label: {
+                Label("Add Your First Workflow", systemImage: "plus.circle.fill")
+            }
+            .buttonStyle(.link)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1)
+        )
+    }
+}
+
 private struct SiteStatusCard: View {
     let state: DeployState
     let openURL: OpenURLAction
@@ -105,7 +149,7 @@ private struct SiteStatusCard: View {
                     .font(.system(size: 20, weight: .semibold))
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(state.site.displayName)
+                    Text(state.workflow.displayName)
                         .font(.system(size: 14, weight: .semibold, design: .rounded))
 
                     Text(state.statusText)
@@ -136,8 +180,10 @@ private struct SiteStatusCard: View {
             }
 
             HStack(spacing: 10) {
-                Button("Open site") {
-                    openURL(state.site.siteURL)
+                if let siteURL = state.workflow.siteURL {
+                    Button("Open site") {
+                        openURL(siteURL)
+                    }
                 }
 
                 if let runURL = state.runURL {

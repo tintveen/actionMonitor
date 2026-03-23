@@ -1,0 +1,40 @@
+<svg width="1280" height="820" viewBox="0 0 1280 820" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="page" x1="112" y1="64" x2="1112" y2="756" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F8FAFC"/>
+      <stop offset="1" stop-color="#E2E8F0"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="228" y1="146" x2="984" y2="694" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#F8FAFC"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="820" fill="#E5E7EB"/>
+  <rect x="56" y="48" width="1168" height="724" rx="40" fill="url(#page)"/>
+  <rect x="92" y="82" width="1096" height="656" rx="28" fill="#D1D5DB"/>
+  <rect x="108" y="118" width="1064" height="604" rx="28" fill="url(#panel)"/>
+
+  <text x="170" y="190" fill="#111827" font-family="SF Pro Display, Arial, sans-serif" font-size="34" font-weight="700">actionMonitor Settings</text>
+  <text x="170" y="228" fill="#475569" font-family="SF Pro Text, Arial, sans-serif" font-size="18">Configure the workflows you want to watch from the menu bar.</text>
+
+  <rect x="168" y="272" width="944" height="246" rx="24" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="2"/>
+  <text x="198" y="320" fill="#111827" font-family="SF Pro Display, Arial, sans-serif" font-size="28" font-weight="700">Monitored Workflows</text>
+  <text x="198" y="352" fill="#64748B" font-family="SF Pro Text, Arial, sans-serif" font-size="16">Add, edit, delete, and reorder the workflows that should appear in the menu.</text>
+
+  <rect x="198" y="386" width="430" height="94" rx="18" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="2"/>
+  <text x="224" y="422" fill="#111827" font-family="SF Pro Display, Arial, sans-serif" font-size="22" font-weight="700">Example Marketing Site</text>
+  <text x="224" y="451" fill="#475569" font-family="SF Pro Text, Arial, sans-serif" font-size="16">octo-org/marketing-site</text>
+  <text x="224" y="474" fill="#64748B" font-family="SF Pro Text, Arial, sans-serif" font-size="14">main   •   deploy.yml</text>
+
+  <rect x="652" y="386" width="430" height="94" rx="18" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="2"/>
+  <text x="678" y="422" fill="#111827" font-family="SF Pro Display, Arial, sans-serif" font-size="22" font-weight="700">Customer Dashboard</text>
+  <text x="678" y="451" fill="#475569" font-family="SF Pro Text, Arial, sans-serif" font-size="16">octo-org/dashboard</text>
+  <text x="678" y="474" fill="#64748B" font-family="SF Pro Text, Arial, sans-serif" font-size="14">release   •   .github/workflows/release.yml</text>
+
+  <rect x="168" y="552" width="944" height="116" rx="24" fill="#FFF7ED" stroke="#FDBA74" stroke-width="2"/>
+  <text x="198" y="600" fill="#9A3412" font-family="SF Pro Display, Arial, sans-serif" font-size="24" font-weight="700">GitHub Access</text>
+  <text x="198" y="633" fill="#9A3412" font-family="SF Pro Text, Arial, sans-serif" font-size="16">Save an optional personal access token in Keychain for private repositories and more reliable polling.</text>
+
+  <circle cx="1016" cy="202" r="18" fill="#10B981"/>
+  <path d="M1008 202L1014 208L1026 196" stroke="white" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

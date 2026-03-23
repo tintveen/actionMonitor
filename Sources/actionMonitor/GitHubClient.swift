@@ -4,7 +4,7 @@ import FoundationNetworking
 #endif
 
 protocol WorkflowRunFetching: Sendable {
-    func fetchLatestRun(for site: SiteConfig, token: String?) async throws -> WorkflowRun?
+    func fetchLatestRun(for workflow: MonitoredWorkflow, token: String?) async throws -> WorkflowRun?
 }
 
 enum GitHubClientError: LocalizedError {
@@ -68,7 +68,7 @@ struct WorkflowRun: Decodable, Equatable, Sendable {
         case runStartedAt = "run_started_at"
     }
 
-    func deployState(for site: SiteConfig) -> DeployState {
+    func deployState(for workflow: MonitoredWorkflow) -> DeployState {
         let normalizedStatus = normalizedDeployStatus
         let statusText: String
 
@@ -84,7 +84,7 @@ struct WorkflowRun: Decodable, Equatable, Sendable {
         }
 
         return DeployState(
-            site: site,
+            workflow: workflow,
             status: normalizedStatus,
             statusText: statusText,
             runURL: htmlURL,
@@ -137,13 +137,13 @@ struct GitHubClient: WorkflowRunFetching {
         self.decoder = decoder
     }
 
-    func latestRunRequest(for site: SiteConfig, token: String?) throws -> URLRequest {
+    func latestRunRequest(for workflow: MonitoredWorkflow, token: String?) throws -> URLRequest {
         var components = URLComponents(
-            url: baseURL.appending(path: "/repos/\(site.owner)/\(site.repo)/actions/workflows/\(site.workflowFile)/runs"),
+            url: baseURL.appending(path: "/repos/\(workflow.owner)/\(workflow.repo)/actions/workflows/\(workflow.workflowFile)/runs"),
             resolvingAgainstBaseURL: false
         )
         components?.queryItems = [
-            URLQueryItem(name: "branch", value: site.branch),
+            URLQueryItem(name: "branch", value: workflow.branch),
             URLQueryItem(name: "event", value: "push"),
             URLQueryItem(name: "per_page", value: "1"),
         ]
@@ -165,9 +165,9 @@ struct GitHubClient: WorkflowRunFetching {
         return request
     }
 
-    func fetchLatestRun(for site: SiteConfig, token: String?) async throws -> WorkflowRun? {
+    func fetchLatestRun(for workflow: MonitoredWorkflow, token: String?) async throws -> WorkflowRun? {
         do {
-            let request = try latestRunRequest(for: site, token: token)
+            let request = try latestRunRequest(for: workflow, token: token)
             let (data, response) = try await session.data(for: request)
 
             guard let response = response as? HTTPURLResponse else {

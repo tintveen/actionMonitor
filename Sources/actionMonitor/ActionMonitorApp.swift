@@ -1,4 +1,3 @@
-#if canImport(AppKit) && canImport(SwiftUI)
 import AppKit
 import SwiftUI
 
@@ -18,7 +17,10 @@ struct ActionMonitorApp: App {
         case .live:
             store = StatusStore(settingsPresenter: settingsWindowController)
         case .demo:
+            let demoStore = InMemoryMonitoredWorkflowStore(initialWorkflows: MonitoredWorkflow.demoWorkflows)
             store = StatusStore(
+                workflows: MonitoredWorkflow.demoWorkflows,
+                workflowStore: demoStore,
                 client: DemoWorkflowRunFetcher(),
                 credentialStore: DemoCredentialStore(),
                 settingsPresenter: settingsWindowController,
@@ -52,58 +54,3 @@ struct ActionMonitorApp: App {
         .menuBarExtraStyle(.window)
     }
 }
-#else
-import Foundation
-
-@main
-struct ActionMonitorCLI {
-    static func main() async {
-        let arguments = Array(CommandLine.arguments.dropFirst())
-
-        if arguments.contains("--help") {
-            print("""
-            actionMonitor cloud test runner
-
-            Usage:
-              swift run actionMonitor --demo     # run with deterministic sample data
-              swift run actionMonitor --live     # fetch GitHub Actions data using GITHUB_TOKEN if set
-            """)
-            return
-        }
-
-        let runner = CloudTestRunner(
-            sites: SiteConfig.monitoredSites,
-            fetcher: arguments.contains("--live") ? GitHubClient() : DemoWorkflowRunFetcher(),
-            token: ProcessInfo.processInfo.environment["GITHUB_TOKEN"]
-        )
-
-        await runner.run()
-    }
-}
-
-private struct CloudTestRunner {
-    let sites: [SiteConfig]
-    let fetcher: any WorkflowRunFetching
-    let token: String?
-
-    func run() async {
-        print("actionMonitor cloud test run")
-        print("mode: \(fetcher is DemoWorkflowRunFetcher ? "demo" : "live")")
-
-        for site in sites {
-            do {
-                if let run = try await fetcher.fetchLatestRun(for: site, token: token) {
-                    let state = run.deployState(for: site)
-                    let commit = state.shortCommitSHA ?? "n/a"
-                    print("- \(site.displayName): \(state.statusText) [commit: \(commit)]")
-                } else {
-                    print("- \(site.displayName): No deploy runs found")
-                }
-            } catch {
-                print("- \(site.displayName): ERROR - \(error.localizedDescription)")
-            }
-        }
-    }
-}
-
-#endif

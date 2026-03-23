@@ -1,12 +1,12 @@
 import Foundation
 
 struct DemoWorkflowRunFetcher: WorkflowRunFetching {
-    func fetchLatestRun(for site: SiteConfig, token: String?) async throws -> WorkflowRun? {
+    func fetchLatestRun(for workflow: MonitoredWorkflow, token: String?) async throws -> WorkflowRun? {
         let now = Date()
 
-        if site.repo.contains("betreuung") {
+        if workflow.repo.contains("marketing") {
             return WorkflowRun(
-                htmlURL: site.workflowURL,
+                htmlURL: workflow.workflowURL,
                 status: "completed",
                 conclusion: "success",
                 headSHA: "0123456789abcdef",
@@ -17,12 +17,12 @@ struct DemoWorkflowRunFetcher: WorkflowRunFetching {
         }
 
         return WorkflowRun(
-            htmlURL: site.workflowURL,
-            status: "completed",
-            conclusion: "success",
+            htmlURL: workflow.workflowURL,
+            status: "in_progress",
+            conclusion: nil,
             headSHA: "fedcba9876543210",
             createdAt: now.addingTimeInterval(-480),
-            updatedAt: now.addingTimeInterval(-360),
+            updatedAt: now.addingTimeInterval(-120),
             runStartedAt: now.addingTimeInterval(-450)
         )
     }

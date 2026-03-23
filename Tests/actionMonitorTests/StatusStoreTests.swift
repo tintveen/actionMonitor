@@ -3,10 +3,26 @@ import XCTest
 
 @MainActor
 final class StatusStoreTests: XCTestCase {
-    func testStartPromptsForTokenWhenCredentialStoreIsEmpty() {
+    func testStartDoesNotPromptWhenNoWorkflowsAreConfigured() {
         let settingsPresenter = TestSettingsPresenter()
+        let workflowStore = InMemoryMonitoredWorkflowStore()
         let store = StatusStore(
-            sites: [],
+            workflowStore: workflowStore,
+            credentialStore: TestCredentialStore(token: nil),
+            settingsPresenter: settingsPresenter
+        )
+
+        store.start()
+
+        XCTAssertEqual(settingsPresenter.showSettingsCallCount, 0)
+        XCTAssertTrue(store.workflows.isEmpty)
+    }
+
+    func testStartPromptsForTokenWhenWorkflowExistsAndCredentialStoreIsEmpty() {
+        let settingsPresenter = TestSettingsPresenter()
+        let workflowStore = InMemoryMonitoredWorkflowStore(initialWorkflows: [sampleWorkflow()])
+        let store = StatusStore(
+            workflowStore: workflowStore,
             credentialStore: TestCredentialStore(token: nil),
             settingsPresenter: settingsPresenter
         )
@@ -18,8 +34,9 @@ final class StatusStoreTests: XCTestCase {
 
     func testStartOnlyPromptsOnceWhenTokenIsMissing() {
         let settingsPresenter = TestSettingsPresenter()
+        let workflowStore = InMemoryMonitoredWorkflowStore(initialWorkflows: [sampleWorkflow()])
         let store = StatusStore(
-            sites: [],
+            workflowStore: workflowStore,
             credentialStore: TestCredentialStore(token: nil),
             settingsPresenter: settingsPresenter
         )
@@ -32,8 +49,9 @@ final class StatusStoreTests: XCTestCase {
 
     func testStartDoesNotPromptWhenTokenExists() {
         let settingsPresenter = TestSettingsPresenter()
+        let workflowStore = InMemoryMonitoredWorkflowStore(initialWorkflows: [sampleWorkflow()])
         let store = StatusStore(
-            sites: [],
+            workflowStore: workflowStore,
             credentialStore: TestCredentialStore(token: "github-token"),
             settingsPresenter: settingsPresenter
         )
@@ -43,31 +61,11 @@ final class StatusStoreTests: XCTestCase {
         XCTAssertEqual(settingsPresenter.showSettingsCallCount, 0)
     }
 
-    func testStartDoesNotPromptWhenMissingTokenPromptsAreDisabled() {
-        let settingsPresenter = TestSettingsPresenter()
-        let store = StatusStore(
-            sites: [],
-            credentialStore: TestCredentialStore(token: nil),
-            settingsPresenter: settingsPresenter,
-            promptsForMissingToken: false
-        )
-
-        store.start()
-
-        XCTAssertEqual(settingsPresenter.showSettingsCallCount, 0)
-    }
-
     func testUnauthorizedRefreshPromptsForSettingsOnceAndShowsBanner() async {
         let settingsPresenter = TestSettingsPresenter()
+        let workflowStore = InMemoryMonitoredWorkflowStore(initialWorkflows: [sampleWorkflow()])
         let store = StatusStore(
-            sites: [SiteConfig(
-                displayName: "Example",
-                owner: "tintveen",
-                repo: "example.com",
-                branch: "main",
-                workflowFile: "deploy.yml",
-                siteURL: URL(string: "https://example.com")!
-            )],
+            workflowStore: workflowStore,
             client: UnauthorizedWorkflowRunFetcher(),
             credentialStore: TestCredentialStore(token: "bad-token"),
             settingsPresenter: settingsPresenter
@@ -84,15 +82,9 @@ final class StatusStoreTests: XCTestCase {
     }
 
     func testRefreshDoesNotShowMissingTokenBannerWhenDisabled() async {
+        let workflowStore = InMemoryMonitoredWorkflowStore(initialWorkflows: [sampleWorkflow()])
         let store = StatusStore(
-            sites: [SiteConfig(
-                displayName: "Example",
-                owner: "tintveen",
-                repo: "example.com",
-                branch: "main",
-                workflowFile: "deploy.yml",
-                siteURL: URL(string: "https://example.com")!
-            )],
+            workflowStore: workflowStore,
             client: EmptyWorkflowRunFetcher(),
             credentialStore: TestCredentialStore(token: nil),
             showsMissingTokenBanner: false
@@ -104,6 +96,49 @@ final class StatusStoreTests: XCTestCase {
         }
 
         XCTAssertNil(store.bannerMessage)
+    }
+
+    func testAddWorkflowPersistsAndCreatesPlaceholderState() throws {
+        let workflowStore = InMemoryMonitoredWorkflowStore()
+        let store = StatusStore(
+            workflowStore: workflowStore,
+            client: EmptyWorkflowRunFetcher(),
+            credentialStore: TestCredentialStore(token: nil),
+            promptsForMissingToken: false
+        )
+
+        try store.addWorkflow(
+            from: MonitoredWorkflowDraft(
+                displayName: "Dashboard",
+                owner: "octo-org",
+                repo: "dashboard",
+                branch: "main",
+                workflowFile: "deploy.yml",
+                siteURLText: "https://dashboard.example.com"
+            )
+        )
+
+        XCTAssertEqual(store.workflows.count, 1)
+        XCTAssertEqual(store.states.count, 1)
+        XCTAssertEqual(store.states.first?.status, .unknown)
+        XCTAssertEqual(try workflowStore.loadWorkflows().count, 1)
+    }
+
+    func testMoveWorkflowDownPersistsOrder() throws {
+        let first = sampleWorkflow(displayName: "First", repo: "first")
+        let second = sampleWorkflow(displayName: "Second", repo: "second")
+        let workflowStore = InMemoryMonitoredWorkflowStore(initialWorkflows: [first, second])
+        let store = StatusStore(
+            workflowStore: workflowStore,
+            client: EmptyWorkflowRunFetcher(),
+            credentialStore: TestCredentialStore(token: nil),
+            promptsForMissingToken: false
+        )
+
+        try store.moveWorkflowDown(id: first.id)
+
+        XCTAssertEqual(store.workflows.map(\.displayName), ["Second", "First"])
+        XCTAssertEqual(try workflowStore.loadWorkflows().map(\.displayName), ["Second", "First"])
     }
 }
 
@@ -129,15 +164,34 @@ private final class TestSettingsPresenter: SettingsPresenting {
 }
 
 private struct UnauthorizedWorkflowRunFetcher: WorkflowRunFetching {
-    func fetchLatestRun(for site: SiteConfig, token: String?) async throws -> WorkflowRun? {
+    func fetchLatestRun(for workflow: MonitoredWorkflow, token: String?) async throws -> WorkflowRun? {
         throw GitHubClientError.unauthorized
     }
 }
 
 private struct EmptyWorkflowRunFetcher: WorkflowRunFetching {
-    func fetchLatestRun(for site: SiteConfig, token: String?) async throws -> WorkflowRun? {
+    func fetchLatestRun(for workflow: MonitoredWorkflow, token: String?) async throws -> WorkflowRun? {
         nil
     }
+}
+
+private func sampleWorkflow(
+    displayName: String = "Example",
+    owner: String = "tintveen",
+    repo: String = "example.com",
+    branch: String = "main",
+    workflowFile: String = "deploy.yml",
+    siteURL: URL? = URL(string: "https://example.com")
+) -> MonitoredWorkflow {
+    MonitoredWorkflow(
+        id: UUID(),
+        displayName: displayName,
+        owner: owner,
+        repo: repo,
+        branch: branch,
+        workflowFile: workflowFile,
+        siteURL: siteURL
+    )
 }
 
 @MainActor

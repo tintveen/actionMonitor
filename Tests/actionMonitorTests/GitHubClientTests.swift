@@ -2,19 +2,20 @@ import XCTest
 @testable import actionMonitor
 
 final class GitHubClientTests: XCTestCase {
-    private let site = SiteConfig(
+    private let workflow = MonitoredWorkflow(
+        id: UUID(uuidString: "F0A62E52-0AF4-4E16-85F8-E7BC06EA4413")!,
         displayName: "Example",
         owner: "tintveen",
         repo: "example.com",
         branch: "main",
         workflowFile: "deploy.yml",
-        siteURL: URL(string: "https://example.com")!
+        siteURL: URL(string: "https://example.com")
     )
 
     func testLatestRunRequestIncludesWorkflowBranchAndEvent() throws {
         let client = GitHubClient(baseURL: URL(string: "https://api.github.com")!)
 
-        let request = try client.latestRunRequest(for: site, token: "test-token")
+        let request = try client.latestRunRequest(for: workflow, token: "test-token")
 
         XCTAssertEqual(request.httpMethod, "GET")
         XCTAssertEqual(request.url?.absoluteString, "https://api.github.com/repos/tintveen/example.com/actions/workflows/deploy.yml/runs?branch=main&event=push&per_page=1")
@@ -39,7 +40,7 @@ final class GitHubClientTests: XCTestCase {
             )
 
             XCTAssertEqual(run.normalizedDeployStatus, .running)
-            XCTAssertEqual(run.deployState(for: site).status, .running)
+            XCTAssertEqual(run.deployState(for: workflow).status, .running)
         }
     }
 
@@ -55,7 +56,7 @@ final class GitHubClientTests: XCTestCase {
         )
 
         XCTAssertEqual(run.normalizedDeployStatus, .success)
-        XCTAssertEqual(run.deployState(for: site).status, .success)
+        XCTAssertEqual(run.deployState(for: workflow).status, .success)
     }
 
     func testCompletedFailureConclusionsMapToFailed() {
@@ -73,13 +74,13 @@ final class GitHubClientTests: XCTestCase {
             )
 
             XCTAssertEqual(run.normalizedDeployStatus, .failed)
-            XCTAssertEqual(run.deployState(for: site).status, .failed)
+            XCTAssertEqual(run.deployState(for: workflow).status, .failed)
         }
     }
 
     func testCombinedStatusPrioritizesRunningThenFailedThenSuccess() {
         let running = DeployState(
-            site: site,
+            workflow: workflow,
             status: .running,
             statusText: "Deploy running",
             runURL: nil,
@@ -89,7 +90,7 @@ final class GitHubClientTests: XCTestCase {
             errorMessage: nil
         )
         let failed = DeployState(
-            site: site,
+            workflow: workflow,
             status: .failed,
             statusText: "Deploy failed",
             runURL: nil,
@@ -99,7 +100,7 @@ final class GitHubClientTests: XCTestCase {
             errorMessage: nil
         )
         let success = DeployState(
-            site: site,
+            workflow: workflow,
             status: .success,
             statusText: "Deploy succeeded",
             runURL: nil,
@@ -109,7 +110,7 @@ final class GitHubClientTests: XCTestCase {
             errorMessage: nil
         )
         let unknown = DeployState(
-            site: site,
+            workflow: workflow,
             status: .unknown,
             statusText: "Status unavailable",
             runURL: nil,

@@ -26,7 +26,7 @@ final class SettingsWindowController: NSObject, SettingsPresenting {
 
         let window = makeWindowIfNeeded(with: store)
         let rootView = SettingsView(store: store)
-            .frame(width: 420, height: 280)
+            .frame(minWidth: 620, minHeight: 560)
         let hostingController = NSHostingController(rootView: rootView)
 
         if NSApp.activationPolicy() != .regular {
@@ -54,22 +54,21 @@ final class SettingsWindowController: NSObject, SettingsPresenting {
         }
 
         let rootView = SettingsView(store: store)
-            .frame(width: 420, height: 280)
+            .frame(minWidth: 620, minHeight: 560)
         let hostingController = NSHostingController(rootView: rootView)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 280),
-            styleMask: [.titled, .closable, .miniaturizable],
+            contentRect: NSRect(x: 0, y: 0, width: 680, height: 620),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
 
-        window.title = "GitHub Settings"
+        window.title = "Settings"
         window.delegate = self
         window.isReleasedWhenClosed = false
         window.center()
-        window.setContentSize(NSSize(width: 420, height: 280))
-        window.contentMinSize = NSSize(width: 420, height: 280)
-        window.contentMaxSize = NSSize(width: 420, height: 280)
+        window.setContentSize(NSSize(width: 680, height: 620))
+        window.contentMinSize = NSSize(width: 620, height: 560)
         window.contentViewController = hostingController
 
         self.window = window

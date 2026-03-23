@@ -1,52 +1,82 @@
 # actionMonitor
 
-`actionMonitor` ist eine macOS-Menüleisten-App zum Überwachen von GitHub-Deployments. Damit sie auch in einer Linux-/Cloud-Umgebung ordentlich testbar ist, enthält das Paket jetzt zusätzlich einen kleinen CLI-Testmodus.
+![actionMonitor icon](docs/app-icon.svg)
 
-## Lokal in der Cloud testen
+`actionMonitor` is a macOS menu bar app for watching GitHub Actions workflows that matter to you. Configure the repositories and workflow files you want to monitor, keep an optional GitHub token in Keychain, and get a compact status view from the menu bar.
 
-### 1. Unit-Tests ausführen
+![actionMonitor screenshot](docs/screenshot.svg)
 
-```bash
-swift test
-```
+## Features
 
-### 2. Smoke-Test mit Demo-Daten
+- Monitor your own list of GitHub Actions workflows instead of a hardcoded repo list.
+- Add, edit, delete, and reorder monitored workflows from the Settings window.
+- Watch public repositories without a token, or save a GitHub token in Keychain for private repos and better rate-limit behavior.
+- Keep workflow configuration on disk at `~/Library/Application Support/actionMonitor/monitored-workflows.json`.
+- Use `--demo` on macOS to launch the app with sample workflows for screenshots or manual QA.
 
-```bash
-swift run actionMonitor --demo
-```
+## Requirements
 
-Der Demo-Modus verwendet deterministische Beispiel-Deployments und braucht weder Keychain noch GitHub-Zugang. Auf macOS startet dabei weiterhin die Menüleisten-App, aber ohne Token-Abfrage und ohne Keychain-Zugriff.
+- macOS 14 or newer
+- Xcode Command Line Tools or Xcode with Swift 6.1 support
 
-### 3. Live gegen GitHub testen
+## Build And Install
 
-```bash
-GITHUB_TOKEN=ghp_xxx swift run actionMonitor --live
-```
-
-Auf Nicht-macOS-Plattformen liest `actionMonitor` den Token dafür aus `GITHUB_TOKEN`. Auf macOS bleibt die normale Keychain-Integration der Menüleisten-App unverändert.
-
-## Lokal auf macOS installieren
-
-Ohne Xcode kannst du `actionMonitor` als normale App nach `~/Applications` installieren:
+### Install locally
 
 ```bash
 ./scripts/install-local.sh
 ```
 
-Danach kannst du die App per Spotlight, Finder, `actionMonitor` im Terminal oder über die macOS-Login-Items starten. Wenn du eine neue Version aus dem Repo bauen willst, führe das Skript einfach erneut aus.
+This builds a release app bundle and installs it to `~/Applications/actionMonitor.app`.
 
-Für dauerhaft gemerkten Keychain-Zugriff ist die installierte App der bessere Startpunkt als `swift run`, weil macOS Berechtigungen zuverlässiger an eine feste App-Installation koppelt als an einen Development-Run aus dem Build-Ordner.
+### Run from source
 
-Zum Entfernen der lokalen Installation:
+```bash
+swift run actionMonitor
+```
+
+### Launch demo mode
+
+```bash
+swift run actionMonitor --demo
+```
+
+## First-Run Setup
+
+1. Launch the app.
+2. Open `Settings`.
+3. Add one or more workflows with:
+   - Display name
+   - GitHub owner or organization
+   - Repository name
+   - Branch
+   - Workflow file name or path
+   - Optional site URL
+4. Refresh from the menu bar to fetch the latest workflow run.
+
+## GitHub Token Guidance
+
+- Public repositories usually work without a token.
+- Private repositories need a token that can read Actions workflow data.
+- A token also helps avoid stricter anonymous GitHub rate limits.
+- On macOS, the token is stored in Keychain by the app.
+
+## Development
+
+### Run tests
+
+```bash
+swift test
+```
+
+### Remove the local install
 
 ```bash
 ./scripts/uninstall-local.sh
 ```
 
-Das entfernt sowohl `~/Applications/actionMonitor.app` als auch den Terminal-Shortcut unter `/opt/homebrew/bin/actionMonitor`.
+## Release Notes
 
-## Plattformverhalten
-
-- **macOS:** startet wie bisher die SwiftUI-Menüleisten-App.
-- **Linux/Cloud:** startet einen textbasierten Test-Runner, damit Netzwerk-, Parsing- und Statuslogik ohne AppKit geprüft werden können.
+- Source distribution is the supported release format for now.
+- The repository includes a macOS CI workflow that runs `swift test` on pushes and pull requests.
+- The bundled app version is currently `0.1.0`.
