@@ -1,5 +1,5 @@
 import XCTest
-@testable import deployBar
+@testable import actionMonitor
 
 final class GitHubClientTests: XCTestCase {
     private let site = SiteConfig(
@@ -20,6 +20,7 @@ final class GitHubClientTests: XCTestCase {
         XCTAssertEqual(request.url?.absoluteString, "https://api.github.com/repos/tintveen/example.com/actions/workflows/deploy.yml/runs?branch=main&event=push&per_page=1")
         XCTAssertEqual(request.value(forHTTPHeaderField: "Accept"), "application/vnd.github+json")
         XCTAssertEqual(request.value(forHTTPHeaderField: "X-GitHub-Api-Version"), GitHubClient.apiVersion)
+        XCTAssertEqual(request.value(forHTTPHeaderField: "User-Agent"), "actionMonitor")
         XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer test-token")
     }
 

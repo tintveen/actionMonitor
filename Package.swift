@@ -2,19 +2,19 @@
 import PackageDescription
 
 let package = Package(
-    name: "deployBar",
+    name: "actionMonitor",
     platforms: [
         .macOS(.v14),
     ],
     products: [
         .executable(
-            name: "deployBar",
-            targets: ["deployBar"]
+            name: "actionMonitor",
+            targets: ["actionMonitor"]
         ),
     ],
     targets: [
         .executableTarget(
-            name: "deployBar",
+            name: "actionMonitor",
             linkerSettings: [
                 // Embed app metadata so AppKit can resolve Bundle.main.bundleIdentifier.
                 .unsafeFlags([
@@ -26,8 +26,8 @@ let package = Package(
             ]
         ),
         .testTarget(
-            name: "deployBarTests",
-            dependencies: ["deployBar"]
+            name: "actionMonitorTests",
+            dependencies: ["actionMonitor"]
         ),
     ]
 )

@@ -1,5 +1,5 @@
 import XCTest
-@testable import deployBar
+@testable import actionMonitor
 
 @MainActor
 final class StatusStoreTests: XCTestCase {

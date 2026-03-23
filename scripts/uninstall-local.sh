@@ -2,8 +2,8 @@
 
 set -euo pipefail
 
-APP_DIR="${HOME}/Applications/DeployBar.app"
-LAUNCHER_PATH="/opt/homebrew/bin/deploybar"
+APP_DIR="${HOME}/Applications/actionMonitor.app"
+LAUNCHER_PATH="/opt/homebrew/bin/actionMonitor"
 
 if [[ -d "${APP_DIR}" ]]; then
   echo "Removing ${APP_DIR}..."

@@ -21,7 +21,7 @@ enum CredentialStoreError: LocalizedError {
         case .unsupportedPlatform:
             return "Saving tokens is only supported by the macOS menu bar app."
         case .disabledInDemoMode:
-            return "Token storage is disabled while deployBar is running in demo mode."
+            return "Token storage is disabled while actionMonitor is running in demo mode."
         }
     }
 }
@@ -30,7 +30,7 @@ enum CredentialStoreError: LocalizedError {
 import Security
 
 struct KeychainCredentialStore: CredentialStore {
-    private let service = "deployBar.github.token"
+    private let service = "actionMonitor.github.token"
     private let account = "github.com"
 
     func loadToken() throws -> String? {

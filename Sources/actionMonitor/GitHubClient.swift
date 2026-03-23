@@ -156,7 +156,7 @@ struct GitHubClient: WorkflowRunFetching {
         request.httpMethod = "GET"
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue(GitHubClient.apiVersion, forHTTPHeaderField: "X-GitHub-Api-Version")
-        request.setValue("deployBar", forHTTPHeaderField: "User-Agent")
+        request.setValue("actionMonitor", forHTTPHeaderField: "User-Agent")
 
         if let token, !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")

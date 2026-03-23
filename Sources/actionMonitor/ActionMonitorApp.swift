@@ -3,7 +3,7 @@ import AppKit
 import SwiftUI
 
 @main
-struct DeployBarApp: App {
+struct ActionMonitorApp: App {
     @StateObject private var statusStore: StatusStore
     private let settingsWindowController: SettingsWindowController
 
@@ -56,17 +56,17 @@ struct DeployBarApp: App {
 import Foundation
 
 @main
-struct DeployBarCLI {
+struct ActionMonitorCLI {
     static func main() async {
         let arguments = Array(CommandLine.arguments.dropFirst())
 
         if arguments.contains("--help") {
             print("""
-            deployBar cloud test runner
+            actionMonitor cloud test runner
 
             Usage:
-              swift run deployBar --demo     # run with deterministic sample data
-              swift run deployBar --live     # fetch GitHub Actions data using GITHUB_TOKEN if set
+              swift run actionMonitor --demo     # run with deterministic sample data
+              swift run actionMonitor --live     # fetch GitHub Actions data using GITHUB_TOKEN if set
             """)
             return
         }
@@ -87,7 +87,7 @@ private struct CloudTestRunner {
     let token: String?
 
     func run() async {
-        print("deployBar cloud test run")
+        print("actionMonitor cloud test run")
         print("mode: \(fetcher is DemoWorkflowRunFetcher ? "demo" : "live")")
 
         for site in sites {

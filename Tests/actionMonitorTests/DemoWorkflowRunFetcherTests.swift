@@ -1,5 +1,5 @@
 import XCTest
-@testable import deployBar
+@testable import actionMonitor
 
 final class DemoWorkflowRunFetcherTests: XCTestCase {
     func testDemoRunForTintveenDotComUsesWorkflowURLInsteadOfFakeRunURL() async throws {

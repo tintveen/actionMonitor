@@ -3,13 +3,13 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleDisplayName</key>
-    <string>DeployBar</string>
+    <string>actionMonitor</string>
     <key>CFBundleExecutable</key>
-    <string>deployBar</string>
+    <string>actionMonitor</string>
     <key>CFBundleIdentifier</key>
-    <string>com.tintveen.deployBar</string>
+    <string>com.tintveen.actionMonitor</string>
     <key>CFBundleName</key>
-    <string>deployBar</string>
+    <string>actionMonitor</string>
     <key>CFBundleShortVersionString</key>
     <string>1.0</string>
     <key>CFBundleVersion</key>
