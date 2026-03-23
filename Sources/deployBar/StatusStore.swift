@@ -27,6 +27,8 @@ final class StatusStore: ObservableObject {
     private let client: any WorkflowRunFetching
     private let credentialStore: any CredentialStore
     private let settingsPresenter: any SettingsPresenting
+    private let promptsForMissingToken: Bool
+    private let showsMissingTokenBanner: Bool
     private var refreshLoopTask: Task<Void, Never>?
     private var refreshTask: Task<Void, Never>?
     private var didStart = false
@@ -37,13 +39,17 @@ final class StatusStore: ObservableObject {
         sites: [SiteConfig] = SiteConfig.monitoredSites,
         client: any WorkflowRunFetching = GitHubClient(),
         credentialStore: any CredentialStore = KeychainCredentialStore(),
-        settingsPresenter: any SettingsPresenting = NoOpSettingsPresenter()
+        settingsPresenter: any SettingsPresenting = NoOpSettingsPresenter(),
+        promptsForMissingToken: Bool = true,
+        showsMissingTokenBanner: Bool = true
     ) {
         let initialStates = sites.map(DeployState.placeholder(for:))
         self.sites = sites
         self.client = client
         self.credentialStore = credentialStore
         self.settingsPresenter = settingsPresenter
+        self.promptsForMissingToken = promptsForMissingToken
+        self.showsMissingTokenBanner = showsMissingTokenBanner
         self.states = initialStates
         self.combinedStatus = CombinedStatus.reduce(initialStates)
 
@@ -68,7 +74,7 @@ final class StatusStore: ObservableObject {
         refreshNow()
         beginRefreshLoop()
 
-        if tokenIsMissing {
+        if promptsForMissingToken && tokenIsMissing {
             promptForTokenIfNeeded()
         }
     }
@@ -167,9 +173,9 @@ final class StatusStore: ObservableObject {
         if sawUnauthorized {
             bannerMessage = "GitHub rejected the stored token. Update it in Settings."
             promptForAuthFailureIfNeeded()
-        } else if sawRateLimit && currentToken.isEmpty {
+        } else if showsMissingTokenBanner && sawRateLimit && currentToken.isEmpty {
             bannerMessage = "Add a GitHub token to avoid anonymous rate limits."
-        } else if currentToken.isEmpty {
+        } else if showsMissingTokenBanner && currentToken.isEmpty {
             bannerMessage = "Add a GitHub token for private repos and more reliable polling."
         } else {
             bannerMessage = nil

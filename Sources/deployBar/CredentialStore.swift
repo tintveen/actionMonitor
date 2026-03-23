@@ -10,6 +10,7 @@ enum CredentialStoreError: LocalizedError {
     case unexpectedStatus(Int)
     case invalidData
     case unsupportedPlatform
+    case disabledInDemoMode
 
     var errorDescription: String? {
         switch self {
@@ -19,6 +20,8 @@ enum CredentialStoreError: LocalizedError {
             return "Keychain returned unreadable token data."
         case .unsupportedPlatform:
             return "Saving tokens is only supported by the macOS menu bar app."
+        case .disabledInDemoMode:
+            return "Token storage is disabled while deployBar is running in demo mode."
         }
     }
 }
@@ -100,6 +103,20 @@ struct KeychainCredentialStore: CredentialStore {
         }
     }
 }
+
+struct DemoCredentialStore: CredentialStore {
+    func loadToken() throws -> String? {
+        nil
+    }
+
+    func saveToken(_ token: String) throws {
+        throw CredentialStoreError.disabledInDemoMode
+    }
+
+    func removeToken() throws {
+        throw CredentialStoreError.disabledInDemoMode
+    }
+}
 #else
 struct KeychainCredentialStore: CredentialStore {
     func loadToken() throws -> String? {
@@ -112,6 +129,20 @@ struct KeychainCredentialStore: CredentialStore {
 
     func removeToken() throws {
         throw CredentialStoreError.unsupportedPlatform
+    }
+}
+
+struct DemoCredentialStore: CredentialStore {
+    func loadToken() throws -> String? {
+        nil
+    }
+
+    func saveToken(_ token: String) throws {
+        throw CredentialStoreError.disabledInDemoMode
+    }
+
+    func removeToken() throws {
+        throw CredentialStoreError.disabledInDemoMode
     }
 }
 #endif

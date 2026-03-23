@@ -16,7 +16,7 @@ swift test
 swift run deployBar --demo
 ```
 
-Der Demo-Modus verwendet deterministische Beispiel-Deployments und braucht weder Keychain noch GitHub-Zugang.
+Der Demo-Modus verwendet deterministische Beispiel-Deployments und braucht weder Keychain noch GitHub-Zugang. Auf macOS startet dabei weiterhin die Menüleisten-App, aber ohne Token-Abfrage und ohne Keychain-Zugriff.
 
 ### 3. Live gegen GitHub testen
 
@@ -35,6 +35,8 @@ Ohne Xcode kannst du `deployBar` als normale App nach `~/Applications` installie
 ```
 
 Danach kannst du die App per Spotlight, Finder, `deploybar` im Terminal oder über die macOS-Login-Items starten. Wenn du eine neue Version aus dem Repo bauen willst, führe das Skript einfach erneut aus.
+
+Für dauerhaft gemerkten Keychain-Zugriff ist die installierte App der bessere Startpunkt als `swift run`, weil macOS Berechtigungen zuverlässiger an eine feste App-Installation koppelt als an einen Development-Run aus dem Build-Ordner.
 
 Zum Entfernen der lokalen Installation:
 

@@ -11,7 +11,21 @@ struct DeployBarApp: App {
         NSWindow.allowsAutomaticWindowTabbing = false
 
         let settingsWindowController = SettingsWindowController()
-        let store = StatusStore(settingsPresenter: settingsWindowController)
+        let launchMode = AppLaunchMode()
+        let store: StatusStore
+
+        switch launchMode {
+        case .live:
+            store = StatusStore(settingsPresenter: settingsWindowController)
+        case .demo:
+            store = StatusStore(
+                client: DemoWorkflowRunFetcher(),
+                credentialStore: DemoCredentialStore(),
+                settingsPresenter: settingsWindowController,
+                promptsForMissingToken: false,
+                showsMissingTokenBanner: false
+            )
+        }
 
         settingsWindowController.store = store
         self.settingsWindowController = settingsWindowController
@@ -92,31 +106,4 @@ private struct CloudTestRunner {
     }
 }
 
-private struct DemoWorkflowRunFetcher: WorkflowRunFetching {
-    func fetchLatestRun(for site: SiteConfig, token: String?) async throws -> WorkflowRun? {
-        let now = Date()
-
-        if site.repo.contains("betreuung") {
-            return WorkflowRun(
-                htmlURL: URL(string: "https://github.com/\(site.owner)/\(site.repo)/actions/runs/1"),
-                status: "completed",
-                conclusion: "success",
-                headSHA: "0123456789abcdef",
-                createdAt: now.addingTimeInterval(-900),
-                updatedAt: now.addingTimeInterval(-600),
-                runStartedAt: now.addingTimeInterval(-870)
-            )
-        }
-
-        return WorkflowRun(
-            htmlURL: URL(string: "https://github.com/\(site.owner)/\(site.repo)/actions/runs/2"),
-            status: "in_progress",
-            conclusion: nil,
-            headSHA: "fedcba9876543210",
-            createdAt: now.addingTimeInterval(-300),
-            updatedAt: now.addingTimeInterval(-120),
-            runStartedAt: now.addingTimeInterval(-240)
-        )
-    }
-}
 #endif

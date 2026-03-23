@@ -26,6 +26,10 @@ struct SiteConfig: Identifiable, Hashable, Sendable {
         self.siteURL = siteURL
     }
 
+    var workflowURL: URL {
+        URL(string: "https://github.com/\(owner)/\(repo)/actions/workflows/\(workflowFile)")!
+    }
+
     static let monitoredSites: [SiteConfig] = [
         SiteConfig(
             displayName: "betreuung-uebach.de",
@@ -77,6 +81,14 @@ struct DeployState: Identifiable, Equatable, Sendable {
 
     var relevantTimestamp: Date? {
         completedAt ?? startedAt
+    }
+
+    var detailsLinkTitle: String {
+        guard let runURL else {
+            return "Open run"
+        }
+
+        return runURL.path.contains("/actions/workflows/") ? "Open workflow" : "Open run"
     }
 
     static func placeholder(for site: SiteConfig) -> DeployState {

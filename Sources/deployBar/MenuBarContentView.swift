@@ -137,7 +137,7 @@ private struct SiteStatusCard: View {
                 }
 
                 if let runURL = state.runURL {
-                    Button("Open run") {
+                    Button(state.detailsLinkTitle) {
                         openURL(runURL)
                     }
                 }

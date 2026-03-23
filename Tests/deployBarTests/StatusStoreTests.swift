@@ -43,6 +43,20 @@ final class StatusStoreTests: XCTestCase {
         XCTAssertEqual(settingsPresenter.showSettingsCallCount, 0)
     }
 
+    func testStartDoesNotPromptWhenMissingTokenPromptsAreDisabled() {
+        let settingsPresenter = TestSettingsPresenter()
+        let store = StatusStore(
+            sites: [],
+            credentialStore: TestCredentialStore(token: nil),
+            settingsPresenter: settingsPresenter,
+            promptsForMissingToken: false
+        )
+
+        store.start()
+
+        XCTAssertEqual(settingsPresenter.showSettingsCallCount, 0)
+    }
+
     func testUnauthorizedRefreshPromptsForSettingsOnceAndShowsBanner() async {
         let settingsPresenter = TestSettingsPresenter()
         let store = StatusStore(
@@ -67,6 +81,29 @@ final class StatusStoreTests: XCTestCase {
         XCTAssertEqual(settingsPresenter.showSettingsCallCount, 1)
         XCTAssertEqual(store.bannerMessage, "GitHub rejected the stored token. Update it in Settings.")
         XCTAssertEqual(store.states.first?.errorMessage, GitHubClientError.unauthorized.localizedDescription)
+    }
+
+    func testRefreshDoesNotShowMissingTokenBannerWhenDisabled() async {
+        let store = StatusStore(
+            sites: [SiteConfig(
+                displayName: "Example",
+                owner: "tintveen",
+                repo: "example.com",
+                branch: "main",
+                workflowFile: "deploy.yml",
+                siteURL: URL(string: "https://example.com")!
+            )],
+            client: EmptyWorkflowRunFetcher(),
+            credentialStore: TestCredentialStore(token: nil),
+            showsMissingTokenBanner: false
+        )
+
+        store.refreshNow()
+        await waitForRefreshResult(on: store) {
+            !store.isRefreshing
+        }
+
+        XCTAssertNil(store.bannerMessage)
     }
 }
 
@@ -94,6 +131,12 @@ private final class TestSettingsPresenter: SettingsPresenting {
 private struct UnauthorizedWorkflowRunFetcher: WorkflowRunFetching {
     func fetchLatestRun(for site: SiteConfig, token: String?) async throws -> WorkflowRun? {
         throw GitHubClientError.unauthorized
+    }
+}
+
+private struct EmptyWorkflowRunFetcher: WorkflowRunFetching {
+    func fetchLatestRun(for site: SiteConfig, token: String?) async throws -> WorkflowRun? {
+        nil
     }
 }
 
