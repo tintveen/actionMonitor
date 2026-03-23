@@ -1,9 +1,9 @@
 import Foundation
 
 protocol CredentialStore: Sendable {
-    func loadToken() throws -> String?
-    func saveToken(_ token: String) throws
-    func removeToken() throws
+    func loadCredential() throws -> GitHubCredential?
+    func saveCredential(_ credential: GitHubCredential) throws
+    func removeCredential() throws
 }
 
 enum CredentialStoreError: LocalizedError {
@@ -17,11 +17,11 @@ enum CredentialStoreError: LocalizedError {
         case .unexpectedStatus(let status):
             return "Keychain access failed with status \(status)."
         case .invalidData:
-            return "Keychain returned unreadable token data."
+            return "Keychain returned unreadable credential data."
         case .unsupportedPlatform:
-            return "Saving tokens is only supported by the macOS menu bar app."
+            return "Saving GitHub credentials is only supported by the macOS menu bar app."
         case .disabledInDemoMode:
-            return "Token storage is disabled while actionMonitor is running in demo mode."
+            return "GitHub sign-in is disabled while actionMonitor is running in demo mode."
         }
     }
 }
@@ -32,8 +32,18 @@ import Security
 struct KeychainCredentialStore: CredentialStore {
     private let service = "actionMonitor.github.token"
     private let account = "github.com"
+    private static let encoder: JSONEncoder = {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        return encoder
+    }()
+    private static let decoder: JSONDecoder = {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return decoder
+    }()
 
-    func loadToken() throws -> String? {
+    func loadCredential() throws -> GitHubCredential? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -47,12 +57,11 @@ struct KeychainCredentialStore: CredentialStore {
 
         switch status {
         case errSecSuccess:
-            guard let data = item as? Data,
-                  let token = String(data: data, encoding: .utf8) else {
+            guard let data = item as? Data else {
                 throw CredentialStoreError.invalidData
             }
 
-            return token
+            return try Self.decodeStoredCredentialData(data)
         case errSecItemNotFound:
             return nil
         default:
@@ -60,8 +69,8 @@ struct KeychainCredentialStore: CredentialStore {
         }
     }
 
-    func saveToken(_ token: String) throws {
-        let data = Data(token.utf8)
+    func saveCredential(_ credential: GitHubCredential) throws {
+        let data = try Self.encodeCredential(credential)
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -90,7 +99,7 @@ struct KeychainCredentialStore: CredentialStore {
         }
     }
 
-    func removeToken() throws {
+    func removeCredential() throws {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -102,46 +111,84 @@ struct KeychainCredentialStore: CredentialStore {
             throw CredentialStoreError.unexpectedStatus(Int(status))
         }
     }
+
+    static func decodeStoredCredentialData(
+        _ data: Data,
+        legacySavedAt: Date = Date()
+    ) throws -> GitHubCredential {
+        if let credential = try? decoder.decode(GitHubCredential.self, from: data) {
+            return credential
+        }
+
+        guard let token = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !token.isEmpty else {
+            throw CredentialStoreError.invalidData
+        }
+
+        return GitHubCredential(
+            accessToken: token,
+            source: .personalAccessToken,
+            login: nil,
+            grantedScopes: [],
+            savedAt: legacySavedAt
+        )
+    }
+
+    static func encodeCredential(_ credential: GitHubCredential) throws -> Data {
+        try encoder.encode(credential)
+    }
 }
 
 struct DemoCredentialStore: CredentialStore {
-    func loadToken() throws -> String? {
+    func loadCredential() throws -> GitHubCredential? {
         nil
     }
 
-    func saveToken(_ token: String) throws {
+    func saveCredential(_ credential: GitHubCredential) throws {
         throw CredentialStoreError.disabledInDemoMode
     }
 
-    func removeToken() throws {
+    func removeCredential() throws {
         throw CredentialStoreError.disabledInDemoMode
     }
 }
 #else
 struct KeychainCredentialStore: CredentialStore {
-    func loadToken() throws -> String? {
-        ProcessInfo.processInfo.environment["GITHUB_TOKEN"]
+    func loadCredential() throws -> GitHubCredential? {
+        guard let token = ProcessInfo.processInfo.environment["GITHUB_TOKEN"],
+              !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+
+        return GitHubCredential(
+            accessToken: token,
+            source: .personalAccessToken,
+            login: nil,
+            grantedScopes: [],
+            savedAt: Date()
+        )
     }
 
-    func saveToken(_ token: String) throws {
+    func saveCredential(_ credential: GitHubCredential) throws {
         throw CredentialStoreError.unsupportedPlatform
     }
 
-    func removeToken() throws {
+    func removeCredential() throws {
         throw CredentialStoreError.unsupportedPlatform
     }
 }
 
 struct DemoCredentialStore: CredentialStore {
-    func loadToken() throws -> String? {
+    func loadCredential() throws -> GitHubCredential? {
         nil
     }
 
-    func saveToken(_ token: String) throws {
+    func saveCredential(_ credential: GitHubCredential) throws {
         throw CredentialStoreError.disabledInDemoMode
     }
 
-    func removeToken() throws {
+    func removeCredential() throws {
         throw CredentialStoreError.disabledInDemoMode
     }
 }

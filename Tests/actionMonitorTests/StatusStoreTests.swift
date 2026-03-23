@@ -3,110 +3,103 @@ import XCTest
 
 @MainActor
 final class StatusStoreTests: XCTestCase {
-    func testStartDoesNotPromptWhenNoWorkflowsAreConfigured() {
-        let settingsPresenter = TestSettingsPresenter()
-        let workflowStore = InMemoryMonitoredWorkflowStore()
+    func testStartShowsWelcomeOnboardingWhenSetupIsIncomplete() {
+        let presenter = TestSettingsPresenter()
+        let setupStore = TestAppSetupStore(didCompleteOnboarding: false)
         let store = StatusStore(
-            workflowStore: workflowStore,
-            credentialStore: TestCredentialStore(token: nil),
-            settingsPresenter: settingsPresenter
+            workflowStore: InMemoryMonitoredWorkflowStore(),
+            credentialStore: TestCredentialStore(credential: nil),
+            appSetupStore: setupStore,
+            settingsPresenter: presenter,
+            oauthConfiguration: configuredOAuth()
         )
 
         store.start()
 
-        XCTAssertEqual(settingsPresenter.showSettingsCallCount, 0)
-        XCTAssertTrue(store.workflows.isEmpty)
+        XCTAssertEqual(store.onboardingStep, .welcome)
+        XCTAssertEqual(presenter.showOnboardingSteps, [.welcome])
     }
 
-    func testStartPromptsForTokenWhenWorkflowExistsAndCredentialStoreIsEmpty() {
-        let settingsPresenter = TestSettingsPresenter()
-        let workflowStore = InMemoryMonitoredWorkflowStore(initialWorkflows: [sampleWorkflow()])
+    func testStartShowsWorkflowStepWhenCredentialExistsButNoWorkflow() {
+        let presenter = TestSettingsPresenter()
         let store = StatusStore(
-            workflowStore: workflowStore,
-            credentialStore: TestCredentialStore(token: nil),
-            settingsPresenter: settingsPresenter
+            workflowStore: InMemoryMonitoredWorkflowStore(),
+            credentialStore: TestCredentialStore(credential: oauthCredential()),
+            appSetupStore: TestAppSetupStore(didCompleteOnboarding: false),
+            settingsPresenter: presenter,
+            oauthConfiguration: configuredOAuth()
         )
 
         store.start()
 
-        XCTAssertEqual(settingsPresenter.showSettingsCallCount, 1)
+        XCTAssertEqual(store.onboardingStep, .firstWorkflow)
+        XCTAssertEqual(presenter.showOnboardingSteps, [.firstWorkflow])
     }
 
-    func testStartOnlyPromptsOnceWhenTokenIsMissing() {
-        let settingsPresenter = TestSettingsPresenter()
-        let workflowStore = InMemoryMonitoredWorkflowStore(initialWorkflows: [sampleWorkflow()])
+    func testExistingCredentialAndWorkflowAutoCompletesOnboarding() {
+        let setupStore = TestAppSetupStore(didCompleteOnboarding: false)
         let store = StatusStore(
-            workflowStore: workflowStore,
-            credentialStore: TestCredentialStore(token: nil),
-            settingsPresenter: settingsPresenter
+            workflowStore: InMemoryMonitoredWorkflowStore(initialWorkflows: [sampleWorkflow()]),
+            credentialStore: TestCredentialStore(credential: oauthCredential()),
+            appSetupStore: setupStore,
+            settingsPresenter: TestSettingsPresenter(),
+            oauthConfiguration: configuredOAuth()
         )
 
         store.start()
-        store.start()
 
-        XCTAssertEqual(settingsPresenter.showSettingsCallCount, 1)
+        XCTAssertFalse(store.shouldRouteSettingsToOnboarding)
+        XCTAssertEqual(setupStore.savedValues.last, true)
     }
 
-    func testStartDoesNotPromptWhenTokenExists() {
-        let settingsPresenter = TestSettingsPresenter()
-        let workflowStore = InMemoryMonitoredWorkflowStore(initialWorkflows: [sampleWorkflow()])
+    func testBrowserSignInPersistsCredentialOpensBrowserAndAdvancesToWorkflowStep() async {
+        let presenter = TestSettingsPresenter()
+        let setupStore = TestAppSetupStore(didCompleteOnboarding: false)
+        let credentialStore = TestCredentialStore(credential: nil)
+        let authorizer = TestGitHubBrowserOAuthAuthorizer(
+            context: browserAuthorizationContext(),
+            result: .success(oauthCredential())
+        )
         let store = StatusStore(
-            workflowStore: workflowStore,
-            credentialStore: TestCredentialStore(token: "github-token"),
-            settingsPresenter: settingsPresenter
+            workflowStore: InMemoryMonitoredWorkflowStore(),
+            client: EmptyWorkflowRunFetcher(),
+            credentialStore: credentialStore,
+            appSetupStore: setupStore,
+            settingsPresenter: presenter,
+            gitHubAuthorizer: authorizer,
+            oauthConfiguration: configuredOAuth(),
+            promptsForIncompleteSetup: false
         )
 
-        store.start()
+        store.beginOnboarding()
+        store.continueFromWelcome()
+        store.beginGitHubSignIn()
 
-        XCTAssertEqual(settingsPresenter.showSettingsCallCount, 0)
-    }
-
-    func testUnauthorizedRefreshPromptsForSettingsOnceAndShowsBanner() async {
-        let settingsPresenter = TestSettingsPresenter()
-        let workflowStore = InMemoryMonitoredWorkflowStore(initialWorkflows: [sampleWorkflow()])
-        let store = StatusStore(
-            workflowStore: workflowStore,
-            client: UnauthorizedWorkflowRunFetcher(),
-            credentialStore: TestCredentialStore(token: "bad-token"),
-            settingsPresenter: settingsPresenter
-        )
-
-        store.refreshNow()
-        await waitForRefreshResult(on: store) {
-            settingsPresenter.showSettingsCallCount == 1 && store.bannerMessage != nil
+        await waitForCondition {
+            credentialStore.saveCallCount == 1 && !store.isGitHubSignInBusy
         }
 
-        XCTAssertEqual(settingsPresenter.showSettingsCallCount, 1)
-        XCTAssertEqual(store.bannerMessage, "GitHub rejected the stored token. Update it in Settings.")
-        XCTAssertEqual(store.states.first?.errorMessage, GitHubClientError.unauthorized.localizedDescription)
+        XCTAssertEqual(authorizer.preparedConfigurations.map(\.clientID), ["client-id"])
+        XCTAssertEqual(authorizer.waitedConfigurations.map(\.clientSecret), ["client-secret"])
+        XCTAssertEqual(presenter.openedExternalURLs, [browserAuthorizationContext().authorizationURL])
+        XCTAssertEqual(store.authState, .signedInOAuth(oauthCredential().summary))
+        XCTAssertEqual(store.onboardingStep, .firstWorkflow)
+        XCTAssertEqual(credentialStore.credential, oauthCredential())
     }
 
-    func testRefreshDoesNotShowMissingTokenBannerWhenDisabled() async {
-        let workflowStore = InMemoryMonitoredWorkflowStore(initialWorkflows: [sampleWorkflow()])
+    func testSavingFirstWorkflowAdvancesOnboardingToFinish() throws {
         let store = StatusStore(
-            workflowStore: workflowStore,
+            workflowStore: InMemoryMonitoredWorkflowStore(),
             client: EmptyWorkflowRunFetcher(),
-            credentialStore: TestCredentialStore(token: nil),
-            showsMissingTokenBanner: false
+            credentialStore: TestCredentialStore(credential: oauthCredential()),
+            appSetupStore: TestAppSetupStore(didCompleteOnboarding: false),
+            settingsPresenter: TestSettingsPresenter(),
+            oauthConfiguration: configuredOAuth(),
+            promptsForIncompleteSetup: false
         )
 
-        store.refreshNow()
-        await waitForRefreshResult(on: store) {
-            !store.isRefreshing
-        }
-
-        XCTAssertNil(store.bannerMessage)
-    }
-
-    func testAddWorkflowPersistsAndCreatesPlaceholderState() throws {
-        let workflowStore = InMemoryMonitoredWorkflowStore()
-        let store = StatusStore(
-            workflowStore: workflowStore,
-            client: EmptyWorkflowRunFetcher(),
-            credentialStore: TestCredentialStore(token: nil),
-            promptsForMissingToken: false
-        )
-
+        store.beginOnboarding()
+        store.continueFromSignInStep()
         try store.addWorkflow(
             from: MonitoredWorkflowDraft(
                 displayName: "Dashboard",
@@ -118,54 +111,133 @@ final class StatusStoreTests: XCTestCase {
             )
         )
 
+        XCTAssertEqual(store.onboardingStep, .finish)
         XCTAssertEqual(store.workflows.count, 1)
-        XCTAssertEqual(store.states.count, 1)
-        XCTAssertEqual(store.states.first?.status, .unknown)
-        XCTAssertEqual(try workflowStore.loadWorkflows().count, 1)
     }
 
-    func testMoveWorkflowDownPersistsOrder() throws {
-        let first = sampleWorkflow(displayName: "First", repo: "first")
-        let second = sampleWorkflow(displayName: "Second", repo: "second")
-        let workflowStore = InMemoryMonitoredWorkflowStore(initialWorkflows: [first, second])
+    func testFinishOnboardingPersistsCompletionAndDismissesWindow() throws {
+        let presenter = TestSettingsPresenter()
+        let setupStore = TestAppSetupStore(didCompleteOnboarding: false)
         let store = StatusStore(
-            workflowStore: workflowStore,
+            workflowStore: InMemoryMonitoredWorkflowStore(initialWorkflows: [sampleWorkflow()]),
             client: EmptyWorkflowRunFetcher(),
-            credentialStore: TestCredentialStore(token: nil),
-            promptsForMissingToken: false
+            credentialStore: TestCredentialStore(credential: oauthCredential()),
+            appSetupStore: setupStore,
+            settingsPresenter: presenter,
+            oauthConfiguration: configuredOAuth(),
+            promptsForIncompleteSetup: false
         )
 
-        try store.moveWorkflowDown(id: first.id)
+        store.beginOnboarding()
+        store.continueFromSignInStep()
+        store.continueFromWorkflowStep()
+        try store.finishOnboarding()
 
-        XCTAssertEqual(store.workflows.map(\.displayName), ["Second", "First"])
-        XCTAssertEqual(try workflowStore.loadWorkflows().map(\.displayName), ["Second", "First"])
+        XCTAssertFalse(store.shouldRouteSettingsToOnboarding)
+        XCTAssertEqual(setupStore.savedValues.last, true)
+        XCTAssertEqual(presenter.dismissOnboardingCallCount, 1)
+    }
+
+    func testSkipOnboardingLeavesSetupIncomplete() {
+        let presenter = TestSettingsPresenter()
+        let setupStore = TestAppSetupStore(didCompleteOnboarding: false)
+        let store = StatusStore(
+            workflowStore: InMemoryMonitoredWorkflowStore(),
+            credentialStore: TestCredentialStore(credential: nil),
+            appSetupStore: setupStore,
+            settingsPresenter: presenter,
+            oauthConfiguration: configuredOAuth(),
+            promptsForIncompleteSetup: false
+        )
+
+        store.beginOnboarding()
+        store.skipOnboarding()
+
+        XCTAssertTrue(store.shouldRouteSettingsToOnboarding)
+        XCTAssertEqual(setupStore.savedValues.last, false)
+        XCTAssertEqual(presenter.dismissOnboardingCallCount, 1)
+    }
+
+    func testSignOutAfterCompletionMarksSetupIncompleteAgain() {
+        let setupStore = TestAppSetupStore(didCompleteOnboarding: true)
+        let store = StatusStore(
+            workflowStore: InMemoryMonitoredWorkflowStore(initialWorkflows: [sampleWorkflow()]),
+            credentialStore: TestCredentialStore(credential: oauthCredential()),
+            appSetupStore: setupStore,
+            settingsPresenter: TestSettingsPresenter(),
+            oauthConfiguration: configuredOAuth(),
+            promptsForIncompleteSetup: false
+        )
+
+        store.signOut()
+
+        XCTAssertTrue(store.shouldRouteSettingsToOnboarding)
+        XCTAssertEqual(store.authState, .signedOut)
+        XCTAssertEqual(setupStore.savedValues.last, false)
     }
 }
 
-private struct TestCredentialStore: CredentialStore {
-    let token: String?
+private final class TestCredentialStore: CredentialStore, @unchecked Sendable {
+    var credential: GitHubCredential?
+    private(set) var saveCallCount = 0
 
-    func loadToken() throws -> String? {
-        token
+    init(credential: GitHubCredential?) {
+        self.credential = credential
     }
 
-    func saveToken(_ token: String) throws {}
+    func loadCredential() throws -> GitHubCredential? {
+        credential
+    }
 
-    func removeToken() throws {}
+    func saveCredential(_ credential: GitHubCredential) throws {
+        saveCallCount += 1
+        self.credential = credential
+    }
+
+    func removeCredential() throws {
+        credential = nil
+    }
+}
+
+private final class TestAppSetupStore: AppSetupStore, @unchecked Sendable {
+    private var didCompleteOnboarding: Bool
+    private(set) var savedValues: [Bool] = []
+
+    init(didCompleteOnboarding: Bool) {
+        self.didCompleteOnboarding = didCompleteOnboarding
+    }
+
+    func loadDidCompleteOnboarding() -> Bool {
+        didCompleteOnboarding
+    }
+
+    func saveDidCompleteOnboarding(_ didCompleteOnboarding: Bool) {
+        savedValues.append(didCompleteOnboarding)
+        self.didCompleteOnboarding = didCompleteOnboarding
+    }
 }
 
 @MainActor
 private final class TestSettingsPresenter: SettingsPresenting {
     private(set) var showSettingsCallCount = 0
+    private(set) var showOnboardingSteps: [OnboardingStep] = []
+    private(set) var dismissOnboardingCallCount = 0
+    private(set) var openedExternalURLs: [URL] = []
 
     func showSettings() {
         showSettingsCallCount += 1
     }
-}
 
-private struct UnauthorizedWorkflowRunFetcher: WorkflowRunFetching {
-    func fetchLatestRun(for workflow: MonitoredWorkflow, token: String?) async throws -> WorkflowRun? {
-        throw GitHubClientError.unauthorized
+    func showOnboarding(startingAt step: OnboardingStep) {
+        showOnboardingSteps.append(step)
+    }
+
+    func dismissOnboarding() {
+        dismissOnboardingCallCount += 1
+    }
+
+    func openExternalURL(_ url: URL) {
+        openedExternalURLs.append(url)
     }
 }
 
@@ -173,6 +245,63 @@ private struct EmptyWorkflowRunFetcher: WorkflowRunFetching {
     func fetchLatestRun(for workflow: MonitoredWorkflow, token: String?) async throws -> WorkflowRun? {
         nil
     }
+}
+
+private final class TestGitHubBrowserOAuthAuthorizer: GitHubBrowserOAuthAuthorizing, @unchecked Sendable {
+    let context: GitHubBrowserAuthorizationContext
+    let result: Result<GitHubCredential, Error>
+    private(set) var preparedConfigurations: [GitHubOAuthConfiguration] = []
+    private(set) var waitedConfigurations: [GitHubOAuthConfiguration] = []
+
+    init(
+        context: GitHubBrowserAuthorizationContext,
+        result: Result<GitHubCredential, Error>
+    ) {
+        self.context = context
+        self.result = result
+    }
+
+    func prepareAuthorization(using configuration: GitHubOAuthConfiguration) async throws -> GitHubBrowserAuthorizationContext {
+        preparedConfigurations.append(configuration)
+        return context
+    }
+
+    func waitForAuthorization(
+        using context: GitHubBrowserAuthorizationContext,
+        configuration: GitHubOAuthConfiguration
+    ) async throws -> GitHubCredential {
+        waitedConfigurations.append(configuration)
+        return try result.get()
+    }
+
+    func cancelAuthorization() {}
+}
+
+private func configuredOAuth() -> GitHubOAuthConfiguration {
+    GitHubOAuthConfiguration(
+        clientID: "client-id",
+        clientSecret: "client-secret"
+    )!
+}
+
+private func browserAuthorizationContext() -> GitHubBrowserAuthorizationContext {
+    GitHubBrowserAuthorizationContext(
+        authorizationURL: URL(string: "https://github.com/login/oauth/authorize?client_id=client-id")!,
+        redirectURI: URL(string: "http://127.0.0.1:8123/oauth/callback")!,
+        state: "oauth-state",
+        codeVerifier: "oauth-code-verifier",
+        expiresAt: Date(timeIntervalSince1970: 1_712_000_000)
+    )
+}
+
+private func oauthCredential() -> GitHubCredential {
+    GitHubCredential(
+        accessToken: "oauth-token",
+        source: .oauthBrowser,
+        login: "octocat",
+        grantedScopes: ["repo"],
+        savedAt: Date(timeIntervalSince1970: 1_712_000_000)
+    )
 }
 
 private func sampleWorkflow(
@@ -195,8 +324,7 @@ private func sampleWorkflow(
 }
 
 @MainActor
-private func waitForRefreshResult(
-    on store: StatusStore,
+private func waitForCondition(
     timeoutMilliseconds: UInt64 = 1_000,
     condition: @escaping @MainActor () -> Bool
 ) async {
@@ -210,5 +338,5 @@ private func waitForRefreshResult(
         try? await Task.sleep(for: .milliseconds(10))
     }
 
-    XCTFail("Timed out waiting for refresh result. isRefreshing=\(store.isRefreshing), bannerMessage=\(store.bannerMessage ?? "nil")")
+    XCTFail("Timed out waiting for condition.")
 }

@@ -20,7 +20,7 @@ enum GitHubClientError: LocalizedError {
         case .invalidResponse:
             return "GitHub returned an invalid response."
         case .unauthorized:
-            return "GitHub rejected the request. Update the token in Settings."
+            return "GitHub rejected the request. Update your GitHub sign-in or token in Settings."
         case .rateLimited(let resetAt):
             if let resetAt {
                 return "GitHub rate limit reached until \(resetAt.formatted(date: .omitted, time: .shortened))."
@@ -120,6 +120,7 @@ struct WorkflowRun: Decodable, Equatable, Sendable {
 
 struct GitHubClient: WorkflowRunFetching {
     static let apiVersion = "2026-03-10"
+    static let userAgent = "actionMonitor"
 
     let session: URLSession
     let baseURL: URL
@@ -156,7 +157,7 @@ struct GitHubClient: WorkflowRunFetching {
         request.httpMethod = "GET"
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue(GitHubClient.apiVersion, forHTTPHeaderField: "X-GitHub-Api-Version")
-        request.setValue("actionMonitor", forHTTPHeaderField: "User-Agent")
+        request.setValue(GitHubClient.userAgent, forHTTPHeaderField: "User-Agent")
 
         if let token, !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -205,6 +206,6 @@ struct GitHubClient: WorkflowRunFetching {
     }
 }
 
-private struct GitHubAPIError: Decodable {
+struct GitHubAPIError: Decodable {
     let message: String
 }

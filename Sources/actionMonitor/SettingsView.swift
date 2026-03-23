@@ -4,7 +4,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var store: StatusStore
-    @State private var tokenInput: String
+    @State private var tokenInput = ""
     @State private var editorDraft = MonitoredWorkflowDraft()
     @State private var editingWorkflowID: UUID?
     @State private var isEditorPresented = false
@@ -13,14 +13,13 @@ struct SettingsView: View {
 
     init(store: StatusStore) {
         self.store = store
-        _tokenInput = State(initialValue: store.token)
     }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 workflowsSection
-                tokenSection
+                authSection
             }
             .padding(24)
         }
@@ -45,9 +44,6 @@ struct SettingsView: View {
                 },
                 onSave: saveWorkflow
             )
-        }
-        .onChange(of: store.token) { _, newValue in
-            tokenInput = newValue
         }
     }
 
@@ -110,37 +106,30 @@ struct SettingsView: View {
         }
     }
 
-    private var tokenSection: some View {
+    private var authSection: some View {
         SettingsSectionCard {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("GitHub Access")
                         .font(.system(size: 22, weight: .semibold, design: .rounded))
 
-                    Text("Store a personal access token in Keychain so the menu bar app can read GitHub Actions workflow runs for your repositories.")
+                    Text("Sign in with GitHub in your browser to monitor private repositories without managing a personal access token. The token fallback stays available for advanced cases.")
                         .foregroundStyle(.secondary)
                 }
 
-                SecureField("GitHub personal access token", text: $tokenInput)
-                    .textFieldStyle(.roundedBorder)
-
-                Text("Public repositories can work without a token, but private repositories and higher polling reliability need one.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-
-                HStack(spacing: 12) {
-                    Button("Save Token") {
-                        store.saveToken(tokenInput)
-                    }
-                    .keyboardShortcut(.defaultAction)
-
-                    Button("Remove Token") {
-                        tokenInput = ""
-                        store.clearToken()
-                    }
-
-                    Spacer()
+                if let configurationMessage = store.gitHubSignInConfigurationMessage {
+                    InlineMessageView(
+                        systemImage: "gear.badge.xmark",
+                        message: configurationMessage,
+                        tint: .orange
+                    )
                 }
+
+                authCard
+
+                Divider()
+
+                personalAccessTokenSection
 
                 if let credentialMessage = store.credentialMessage {
                     InlineMessageView(
@@ -149,6 +138,139 @@ struct SettingsView: View {
                         tint: .blue
                     )
                 }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var authCard: some View {
+        switch store.authState {
+        case .signedOut:
+            authCallToActionCard(
+                title: "No GitHub credential saved",
+                description: "Browser sign-in is the easiest way to connect private repositories and improve GitHub API reliability."
+            )
+        case .authError(let message):
+            VStack(alignment: .leading, spacing: 12) {
+                InlineMessageView(
+                    systemImage: "exclamationmark.circle.fill",
+                    message: message,
+                    tint: .red
+                )
+
+                authCallToActionCard(
+                    title: "GitHub sign-in needs attention",
+                    description: "Start browser sign-in again, or save a personal access token below as a fallback."
+                )
+            }
+        case .signingInBrowser(let context):
+            BrowserSignInCard(
+                context: context,
+                reopenBrowser: {
+                    store.reopenBrowserSignIn()
+                },
+                cancelSignIn: {
+                    store.cancelGitHubSignIn()
+                }
+            )
+        case .signedInOAuth(let summary):
+            CredentialSummaryCard(
+                summary: summary,
+                title: summary.login.map { "@\($0)" } ?? "GitHub connected",
+                subtitle: "Signed in with GitHub browser OAuth.",
+                primaryButtonTitle: "Sign In Again",
+                primaryAction: {
+                    store.beginGitHubSignIn()
+                },
+                primaryActionDisabled: !store.gitHubSignInIsAvailable || store.isGitHubSignInBusy,
+                secondaryButtonTitle: "Sign Out",
+                secondaryAction: {
+                    tokenInput = ""
+                    store.signOut()
+                }
+            )
+        case .signedInPersonalAccessToken(let summary):
+            CredentialSummaryCard(
+                summary: summary,
+                title: "Personal access token saved",
+                subtitle: "GitHub requests are authenticated with a token stored in Keychain.",
+                primaryButtonTitle: "Switch to Browser Sign-In",
+                primaryAction: {
+                    store.beginGitHubSignIn()
+                },
+                primaryActionDisabled: !store.gitHubSignInIsAvailable || store.isGitHubSignInBusy,
+                secondaryButtonTitle: "Remove Token",
+                secondaryAction: {
+                    tokenInput = ""
+                    store.signOut()
+                }
+            )
+        }
+    }
+
+    private func authCallToActionCard(title: String, description: String) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(.headline)
+
+            Text(description)
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 12) {
+                Button {
+                    store.beginGitHubSignIn()
+                } label: {
+                    Label("Continue in Browser", systemImage: "safari")
+                }
+                .disabled(!store.gitHubSignInIsAvailable || store.isGitHubSignInBusy)
+
+                Spacer()
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(nsColor: .windowBackgroundColor).opacity(0.72))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color(nsColor: .separatorColor).opacity(0.5), lineWidth: 1)
+        )
+    }
+
+    private var personalAccessTokenSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Personal Access Token Fallback")
+                .font(.headline)
+
+            Text("Use this only if you want manual token management or browser sign-in is unavailable. Saving a token here replaces the current saved credential.")
+                .foregroundStyle(.secondary)
+
+            SecureField("GitHub personal access token", text: $tokenInput)
+                .textFieldStyle(.roundedBorder)
+
+            Text(store.hasStoredPersonalAccessToken
+                 ? "A personal access token is currently saved in Keychain."
+                 : "Public repositories can work without authentication, but private repositories and better rate-limit behavior need GitHub sign-in or a token.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 12) {
+                Button(store.hasStoredPersonalAccessToken ? "Save New Token" : "Save Token") {
+                    let token = tokenInput
+                    tokenInput = ""
+                    store.savePersonalAccessToken(token)
+                }
+                .disabled(tokenInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                Button("Remove Saved Token") {
+                    tokenInput = ""
+                    store.signOut()
+                }
+                .disabled(!store.hasStoredPersonalAccessToken)
+
+                Spacer()
             }
         }
     }
@@ -229,6 +351,108 @@ private struct SettingsSectionCard<Content: View>: View {
         .overlay(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1)
+        )
+    }
+}
+
+private struct CredentialSummaryCard: View {
+    let summary: GitHubAuthAccountSummary
+    let title: String
+    let subtitle: String
+    let primaryButtonTitle: String
+    let primaryAction: () -> Void
+    let primaryActionDisabled: Bool
+    let secondaryButtonTitle: String
+    let secondaryAction: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(.headline)
+
+            Text(subtitle)
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 14) {
+                Label(summary.source.displayName, systemImage: iconName)
+
+                if !summary.grantedScopes.isEmpty {
+                    Label(summary.grantedScopes.joined(separator: ", "), systemImage: "checklist")
+                }
+
+                Label("Saved \(summary.savedAt.formatted(date: .abbreviated, time: .shortened))", systemImage: "clock")
+            }
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+
+            HStack(spacing: 12) {
+                Button(primaryButtonTitle, action: primaryAction)
+                    .disabled(primaryActionDisabled)
+
+                Button(secondaryButtonTitle, action: secondaryAction)
+
+                Spacer()
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(nsColor: .windowBackgroundColor).opacity(0.72))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color(nsColor: .separatorColor).opacity(0.5), lineWidth: 1)
+        )
+    }
+
+    private var iconName: String {
+        switch summary.source {
+        case .oauthBrowser:
+            return "safari"
+        case .personalAccessToken:
+            return "key.fill"
+        }
+    }
+}
+
+private struct BrowserSignInCard: View {
+    let context: GitHubBrowserAuthorizationContext
+    let reopenBrowser: () -> Void
+    let cancelSignIn: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Finish GitHub sign-in in your browser")
+                .font(.headline)
+
+            Text("actionMonitor already opened the browser. Once GitHub redirects back, the app will save your access automatically.")
+                .foregroundStyle(.secondary)
+
+            Text(context.authorizationURL.absoluteString)
+                .font(.footnote.monospaced())
+                .textSelection(.enabled)
+                .foregroundStyle(.secondary)
+
+            Text("Waiting until \(context.expiresAt.formatted(date: .omitted, time: .shortened)).")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 12) {
+                Button("Open Browser Again", action: reopenBrowser)
+                Button("Cancel", action: cancelSignIn)
+                Spacer()
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(nsColor: .windowBackgroundColor).opacity(0.72))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color(nsColor: .separatorColor).opacity(0.5), lineWidth: 1)
         )
     }
 }

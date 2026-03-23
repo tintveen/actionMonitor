@@ -23,9 +23,11 @@ struct ActionMonitorApp: App {
                 workflowStore: demoStore,
                 client: DemoWorkflowRunFetcher(),
                 credentialStore: DemoCredentialStore(),
+                appSetupStore: DemoAppSetupStore(),
                 settingsPresenter: settingsWindowController,
-                promptsForMissingToken: false,
-                showsMissingTokenBanner: false
+                oauthConfiguration: nil,
+                promptsForIncompleteSetup: false,
+                showsMissingCredentialBanner: false
             )
         }
 

@@ -16,11 +16,14 @@ struct Published<Value> {
 
 enum StatusStoreError: LocalizedError {
     case workflowNotFound
+    case onboardingRequirementsNotMet
 
     var errorDescription: String? {
         switch self {
         case .workflowNotFound:
             return "That workflow could not be found."
+        case .onboardingRequirementsNotMet:
+            return "Complete GitHub sign-in and add a workflow before finishing setup."
         }
     }
 }
@@ -32,20 +35,28 @@ final class StatusStore: ObservableObject {
     @Published private(set) var combinedStatus: DeployStatus
     @Published private(set) var isRefreshing = false
     @Published private(set) var bannerMessage: String?
-    @Published private(set) var token: String
+    @Published private(set) var authState: GitHubAuthState
     @Published private(set) var credentialMessage: String?
     @Published private(set) var workflowConfigurationMessage: String?
+    @Published private(set) var gitHubSignInConfigurationMessage: String?
+    @Published private(set) var onboardingStep: OnboardingStep?
 
     private let workflowStore: any MonitoredWorkflowStore
     private let client: any WorkflowRunFetching
     private let credentialStore: any CredentialStore
-    private let settingsPresenter: any SettingsPresenting
-    private let promptsForMissingToken: Bool
-    private let showsMissingTokenBanner: Bool
+    private let appSetupStore: any AppSetupStore
+    private let windowPresenter: any SettingsPresenting
+    private let gitHubAuthorizer: any GitHubBrowserOAuthAuthorizing
+    private let oauthConfiguration: GitHubOAuthConfiguration?
+    private let promptsForIncompleteSetup: Bool
+    private let showsMissingCredentialBanner: Bool
+
+    private var currentCredential: GitHubCredential?
+    private var didCompleteOnboarding: Bool
     private var refreshLoopTask: Task<Void, Never>?
     private var refreshTask: Task<Void, Never>?
+    private var signInTask: Task<Void, Never>?
     private var didStart = false
-    private var hasPromptedForInitialToken = false
     private var hasPromptedForAuthFailure = false
     private var pendingRefresh = false
     private var workflowsVersion = 0
@@ -55,16 +66,22 @@ final class StatusStore: ObservableObject {
         workflowStore: any MonitoredWorkflowStore = FileBackedMonitoredWorkflowStore(),
         client: any WorkflowRunFetching = GitHubClient(),
         credentialStore: any CredentialStore = KeychainCredentialStore(),
+        appSetupStore: any AppSetupStore = UserDefaultsAppSetupStore(),
         settingsPresenter: any SettingsPresenting = NoOpSettingsPresenter(),
-        promptsForMissingToken: Bool = true,
-        showsMissingTokenBanner: Bool = true
+        gitHubAuthorizer: any GitHubBrowserOAuthAuthorizing = GitHubBrowserOAuthAuthorizer(),
+        oauthConfiguration: GitHubOAuthConfiguration? = GitHubOAuthConfiguration.load(),
+        promptsForIncompleteSetup: Bool = true,
+        showsMissingCredentialBanner: Bool = true
     ) {
         self.workflowStore = workflowStore
         self.client = client
         self.credentialStore = credentialStore
-        self.settingsPresenter = settingsPresenter
-        self.promptsForMissingToken = promptsForMissingToken
-        self.showsMissingTokenBanner = showsMissingTokenBanner
+        self.appSetupStore = appSetupStore
+        self.windowPresenter = settingsPresenter
+        self.gitHubAuthorizer = gitHubAuthorizer
+        self.oauthConfiguration = oauthConfiguration
+        self.promptsForIncompleteSetup = promptsForIncompleteSetup
+        self.showsMissingCredentialBanner = showsMissingCredentialBanner
 
         let loadedWorkflows: [MonitoredWorkflow]
         if let initialWorkflows {
@@ -83,16 +100,63 @@ final class StatusStore: ObservableObject {
         states = initialStates
         combinedStatus = CombinedStatus.reduce(initialStates)
 
+        currentCredential = nil
+        authState = .signedOut
+        onboardingStep = nil
+        didCompleteOnboarding = appSetupStore.loadDidCompleteOnboarding()
+        gitHubSignInConfigurationMessage = oauthConfiguration == nil
+            ? GitHubOAuthConfiguration.missingConfigurationMessage
+            : nil
+
         do {
-            token = try credentialStore.loadToken() ?? ""
+            let credential = try credentialStore.loadCredential()
+            currentCredential = credential
+            authState = Self.authState(for: credential)
         } catch {
-            token = ""
+            currentCredential = nil
+            authState = .authError(error.localizedDescription)
             credentialMessage = error.localizedDescription
+        }
+
+        if !didCompleteOnboarding,
+           currentCredential != nil,
+           !loadedWorkflows.isEmpty {
+            didCompleteOnboarding = true
+            appSetupStore.saveDidCompleteOnboarding(true)
         }
     }
 
-    var tokenIsMissing: Bool {
-        token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    var gitHubSignInIsAvailable: Bool {
+        oauthConfiguration != nil
+    }
+
+    var isGitHubSignInBusy: Bool {
+        signInTask != nil
+    }
+
+    var hasStoredCredential: Bool {
+        currentCredential != nil
+    }
+
+    var hasStoredPersonalAccessToken: Bool {
+        currentCredential?.source == .personalAccessToken
+    }
+
+    var shouldRouteSettingsToOnboarding: Bool {
+        !didCompleteOnboarding
+    }
+
+    var canFinishOnboarding: Bool {
+        currentCredential != nil && !workflows.isEmpty
+    }
+
+    var onboardingSummaryText: String {
+        let loginText = currentCredential?.login.map { "@\($0)" } ?? "your GitHub account"
+        if workflows.isEmpty {
+            return "Signed in as \(loginText). Add your first workflow to finish setup."
+        }
+
+        return "Signed in as \(loginText) and watching \(workflows.count) workflow\(workflows.count == 1 ? "" : "s")."
     }
 
     func start() {
@@ -104,8 +168,8 @@ final class StatusStore: ObservableObject {
         refreshNow()
         beginRefreshLoop()
 
-        if promptsForMissingToken && tokenIsMissing && !workflows.isEmpty {
-            promptForTokenIfNeeded()
+        if promptsForIncompleteSetup && !didCompleteOnboarding {
+            showOnboardingIfNeeded()
         }
     }
 
@@ -141,18 +205,144 @@ final class StatusStore: ObservableObject {
         }
     }
 
-    func saveToken(_ token: String) {
+    func beginOnboarding() {
+        onboardingStep = suggestedOnboardingStep()
+        windowPresenter.showOnboarding(startingAt: onboardingStep ?? .welcome)
+    }
+
+    func skipOnboarding() {
+        onboardingStep = nil
+        appSetupStore.saveDidCompleteOnboarding(false)
+        didCompleteOnboarding = false
+        windowPresenter.dismissOnboarding()
+    }
+
+    func continueFromWelcome() {
+        onboardingStep = .githubSignIn
+    }
+
+    func continueFromSignInStep() {
+        onboardingStep = .firstWorkflow
+    }
+
+    func continueFromWorkflowStep() {
+        onboardingStep = .finish
+    }
+
+    func moveBackInOnboarding() {
+        guard let onboardingStep else {
+            return
+        }
+
+        switch onboardingStep {
+        case .welcome:
+            return
+        case .githubSignIn:
+            self.onboardingStep = .welcome
+        case .firstWorkflow:
+            self.onboardingStep = .githubSignIn
+        case .finish:
+            self.onboardingStep = .firstWorkflow
+        }
+    }
+
+    func finishOnboarding() throws {
+        guard canFinishOnboarding else {
+            throw StatusStoreError.onboardingRequirementsNotMet
+        }
+
+        didCompleteOnboarding = true
+        appSetupStore.saveDidCompleteOnboarding(true)
+        onboardingStep = nil
+        windowPresenter.dismissOnboarding()
+    }
+
+    func beginGitHubSignIn() {
+        guard signInTask == nil else {
+            return
+        }
+
+        guard let oauthConfiguration else {
+            credentialMessage = gitHubSignInConfigurationMessage ?? GitHubOAuthConfiguration.missingConfigurationMessage
+            return
+        }
+
+        credentialMessage = nil
+
+        signInTask = Task { [weak self] in
+            guard let self else {
+                return
+            }
+
+            do {
+                let context = try await self.gitHubAuthorizer.prepareAuthorization(using: oauthConfiguration)
+                self.authState = .signingInBrowser(context)
+                self.windowPresenter.openExternalURL(context.authorizationURL)
+
+                let credential = try await self.gitHubAuthorizer.waitForAuthorization(
+                    using: context,
+                    configuration: oauthConfiguration
+                )
+
+                try self.persistCredential(
+                    credential,
+                    successMessage: credential.login.map { "Signed in to GitHub as @\($0)." }
+                        ?? "GitHub sign-in saved to Keychain."
+                )
+                self.hasPromptedForAuthFailure = false
+                self.advanceOnboardingAfterSuccessfulAuth()
+                self.refreshNow()
+            } catch let error as GitHubBrowserOAuthError where error == .callbackCancelled {
+                self.restoreAuthStateFromCurrentCredential()
+            } catch {
+                self.restoreAuthStateFromCurrentCredential(orError: error.localizedDescription)
+                self.credentialMessage = error.localizedDescription
+            }
+
+            self.signInTask = nil
+        }
+    }
+
+    func reopenBrowserSignIn() {
+        guard case .signingInBrowser(let context) = authState else {
+            return
+        }
+
+        windowPresenter.openExternalURL(context.authorizationURL)
+    }
+
+    func cancelGitHubSignIn() {
+        guard signInTask != nil else {
+            return
+        }
+
+        gitHubAuthorizer.cancelAuthorization()
+        signInTask?.cancel()
+        credentialMessage = "GitHub sign-in cancelled."
+    }
+
+    func savePersonalAccessToken(_ token: String) {
         let trimmedToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
 
         do {
+            cancelGitHubSignInIfNeeded()
+
             if trimmedToken.isEmpty {
-                try credentialStore.removeToken()
+                try clearSavedCredential(message: "Saved GitHub credential removed.")
             } else {
-                try credentialStore.saveToken(trimmedToken)
+                let credential = GitHubCredential(
+                    accessToken: trimmedToken,
+                    source: .personalAccessToken,
+                    login: nil,
+                    grantedScopes: []
+                )
+                try persistCredential(
+                    credential,
+                    successMessage: "Personal access token saved to Keychain."
+                )
+                advanceOnboardingAfterSuccessfulAuth()
             }
 
-            self.token = trimmedToken
-            credentialMessage = trimmedToken.isEmpty ? "Stored token removed." : "GitHub token saved to Keychain."
             hasPromptedForAuthFailure = false
             refreshNow()
         } catch {
@@ -160,8 +350,20 @@ final class StatusStore: ObservableObject {
         }
     }
 
-    func clearToken() {
-        saveToken("")
+    func signOut() {
+        do {
+            cancelGitHubSignInIfNeeded()
+            try clearSavedCredential(message: "Saved GitHub credential removed.")
+            hasPromptedForAuthFailure = false
+            didCompleteOnboarding = false
+            appSetupStore.saveDidCompleteOnboarding(false)
+            if onboardingStep != nil {
+                onboardingStep = workflows.isEmpty ? .welcome : .githubSignIn
+            }
+            refreshNow()
+        } catch {
+            credentialMessage = error.localizedDescription
+        }
     }
 
     func addWorkflow(from draft: MonitoredWorkflowDraft) throws {
@@ -247,6 +449,16 @@ final class StatusStore: ObservableObject {
 
         workflowsVersion += 1
         replaceWorkflows(with: nextWorkflows)
+
+        if onboardingStep != nil,
+           currentCredential != nil,
+           !nextWorkflows.isEmpty {
+            onboardingStep = .finish
+        } else if onboardingStep == .finish,
+                  nextWorkflows.isEmpty {
+            onboardingStep = .firstWorkflow
+        }
+
         refreshNow()
     }
 
@@ -282,7 +494,8 @@ final class StatusStore: ObservableObject {
             isRefreshing = false
         }
 
-        let currentToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        let currentToken = currentCredential?.accessToken
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         var nextStates: [DeployState] = []
         var sawUnauthorized = false
         var sawRateLimit = false
@@ -325,24 +538,58 @@ final class StatusStore: ObservableObject {
         combinedStatus = CombinedStatus.reduce(nextStates)
 
         if sawUnauthorized {
-            bannerMessage = "GitHub rejected the stored token. Update it in Settings."
+            bannerMessage = "GitHub rejected the saved credential. Sign in with GitHub or save a token in Settings."
             promptForAuthFailureIfNeeded()
-        } else if showsMissingTokenBanner && sawRateLimit && currentToken.isEmpty {
-            bannerMessage = "Add a GitHub token to avoid anonymous rate limits."
-        } else if showsMissingTokenBanner && currentToken.isEmpty {
-            bannerMessage = "Add a GitHub token for private repos and more reliable polling."
+        } else if showsMissingCredentialBanner && sawRateLimit && currentToken.isEmpty {
+            bannerMessage = "Sign in with GitHub or save a token to avoid anonymous rate limits."
+        } else if showsMissingCredentialBanner && currentToken.isEmpty {
+            bannerMessage = "Sign in with GitHub or save a token for private repos and more reliable polling."
         } else {
             bannerMessage = nil
         }
     }
 
-    private func promptForTokenIfNeeded() {
-        guard !hasPromptedForInitialToken else {
+    private func persistCredential(
+        _ credential: GitHubCredential,
+        successMessage: String
+    ) throws {
+        try credentialStore.saveCredential(credential)
+        currentCredential = credential
+        authState = Self.authState(for: credential)
+        credentialMessage = successMessage
+    }
+
+    private func clearSavedCredential(message: String) throws {
+        try credentialStore.removeCredential()
+        currentCredential = nil
+        authState = .signedOut
+        credentialMessage = message
+    }
+
+    private func restoreAuthStateFromCurrentCredential(orError errorMessage: String? = nil) {
+        if let currentCredential {
+            authState = Self.authState(for: currentCredential)
+        } else if let errorMessage {
+            authState = .authError(errorMessage)
+        } else {
+            authState = .signedOut
+        }
+    }
+
+    private func cancelGitHubSignInIfNeeded() {
+        guard signInTask != nil else {
             return
         }
 
-        hasPromptedForInitialToken = true
-        openSettingsWindow()
+        gitHubAuthorizer.cancelAuthorization()
+        signInTask?.cancel()
+        signInTask = nil
+    }
+
+    private func showOnboardingIfNeeded() {
+        let step = suggestedOnboardingStep()
+        onboardingStep = step
+        windowPresenter.showOnboarding(startingAt: step)
     }
 
     private func promptForAuthFailureIfNeeded() {
@@ -351,10 +598,43 @@ final class StatusStore: ObservableObject {
         }
 
         hasPromptedForAuthFailure = true
-        openSettingsWindow()
+        windowPresenter.showSettings()
     }
 
-    private func openSettingsWindow() {
-        settingsPresenter.showSettings()
+    private func advanceOnboardingAfterSuccessfulAuth() {
+        guard onboardingStep != nil else {
+            return
+        }
+
+        onboardingStep = workflows.isEmpty ? .firstWorkflow : .finish
+    }
+
+    private func suggestedOnboardingStep() -> OnboardingStep {
+        if currentCredential == nil && workflows.isEmpty {
+            return .welcome
+        }
+
+        if currentCredential == nil {
+            return .githubSignIn
+        }
+
+        if workflows.isEmpty {
+            return .firstWorkflow
+        }
+
+        return .finish
+    }
+
+    private static func authState(for credential: GitHubCredential?) -> GitHubAuthState {
+        guard let credential else {
+            return .signedOut
+        }
+
+        switch credential.source {
+        case .oauthBrowser:
+            return .signedInOAuth(credential.summary)
+        case .personalAccessToken:
+            return .signedInPersonalAccessToken(credential.summary)
+        }
     }
 }
