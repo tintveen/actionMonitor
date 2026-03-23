@@ -1,4 +1,5 @@
-#if canImport(SwiftUI)
+#if canImport(AppKit) && canImport(SwiftUI)
+import AppKit
 import SwiftUI
 
 struct SettingsView: View {
@@ -51,8 +52,8 @@ struct SettingsView: View {
         .background(
             LinearGradient(
                 colors: [
-                    Color(red: 0.98, green: 0.99, blue: 0.97),
-                    Color(red: 0.93, green: 0.96, blue: 0.98),
+                    Color(nsColor: .windowBackgroundColor),
+                    Color(nsColor: .underPageBackgroundColor),
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
