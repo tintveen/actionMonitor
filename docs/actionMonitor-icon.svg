@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="none">
+  <defs>
+    <linearGradient id="ringGradient" x1="250" y1="320" x2="774" y2="704" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#1FB6FF"/>
+      <stop offset="100%" stop-color="#7CFF4F"/>
+    </linearGradient>
+    <linearGradient id="checkGradient" x1="412" y1="470" x2="665" y2="625" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#1FB6FF"/>
+      <stop offset="100%" stop-color="#7CFF4F"/>
+    </linearGradient>
+    <filter id="softGlow" x="120" y="120" width="784" height="784" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="18" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <g filter="url(#softGlow)">
+    <circle cx="512" cy="512" r="236" stroke="url(#ringGradient)" stroke-width="34" stroke-linecap="round"/>
+    <path d="M427 510L493 576L635 434" stroke="url(#checkGradient)" stroke-width="38" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>
