@@ -9,13 +9,15 @@ struct MenuBarContentView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: store.showsFreshInstallAuthenticationCTA ? 0 : 4) {
                 Text("Action Monitor")
                     .font(.system(size: 16, weight: .semibold, design: .rounded))
 
-                Text(statusSubtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                if !store.showsFreshInstallAuthenticationCTA {
+                    Text(statusSubtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             if let bannerMessage = store.bannerMessage {
@@ -27,16 +29,7 @@ struct MenuBarContentView: View {
             }
 
             if store.workflows.isEmpty {
-                if store.showsFreshInstallAuthenticationCTA {
-                    FreshInstallMenuStateView(
-                        authenticateWithGitHub: {
-                            store.beginGitHubSignIn()
-                        },
-                        openSettingsWindow: showSettingsWindow,
-                        isBusy: store.isGitHubSignInBusy || store.isResetting,
-                        isGitHubSignInAvailable: store.gitHubSignInIsAvailable
-                    )
-                } else {
+                if !store.showsFreshInstallAuthenticationCTA {
                     EmptyMenuStateView(openSettingsWindow: showSettingsWindow)
                 }
             } else {
@@ -48,16 +41,25 @@ struct MenuBarContentView: View {
             Divider()
 
             HStack(spacing: 10) {
-                Button("Refresh now") {
-                    store.refreshNow()
-                }
-                .keyboardShortcut("r")
-                .disabled(store.workflows.isEmpty)
+                if store.showsFreshInstallAuthenticationCTA {
+                    Button {
+                        store.beginGitHubSignIn()
+                    } label: {
+                        Label("Authenticate with GitHub", systemImage: "safari")
+                    }
+                    .disabled(!store.gitHubSignInIsAvailable || store.isGitHubSignInBusy || store.isResetting)
+                } else {
+                    Button("Refresh now") {
+                        store.refreshNow()
+                    }
+                    .keyboardShortcut("r")
+                    .disabled(store.workflows.isEmpty)
 
-                Button {
-                    showSettingsWindow()
-                } label: {
-                    Label("Settings", systemImage: "gearshape.fill")
+                    Button {
+                        showSettingsWindow()
+                    } label: {
+                        Label("Settings", systemImage: "gearshape.fill")
+                    }
                 }
 
                 Spacer(minLength: 0)
@@ -87,10 +89,6 @@ struct MenuBarContentView: View {
     }
 
     private var statusSubtitle: String {
-        if store.showsFreshInstallAuthenticationCTA {
-            return "Authenticate with GitHub to start monitoring workflows"
-        }
-
         if store.workflows.isEmpty {
             return "Add a workflow to start monitoring GitHub Actions"
         }
@@ -140,48 +138,6 @@ private struct EmptyMenuStateView: View {
                 openSettingsWindow()
             } label: {
                 Label("Add Your First Workflow", systemImage: "plus.circle.fill")
-            }
-            .buttonStyle(.link)
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1)
-        )
-    }
-}
-
-private struct FreshInstallMenuStateView: View {
-    let authenticateWithGitHub: () -> Void
-    let openSettingsWindow: () -> Void
-    let isBusy: Bool
-    let isGitHubSignInAvailable: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Get Started")
-                .font(.system(size: 14, weight: .semibold, design: .rounded))
-
-            Text("Authenticate with GitHub to discover repositories, review workflows, and start monitoring from your menu bar.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-
-            Button {
-                authenticateWithGitHub()
-            } label: {
-                Label("Authenticate with GitHub", systemImage: "safari")
-            }
-            .disabled(!isGitHubSignInAvailable || isBusy)
-
-            Button {
-                openSettingsWindow()
-            } label: {
-                Label("Open Settings", systemImage: "gearshape.fill")
             }
             .buttonStyle(.link)
         }
