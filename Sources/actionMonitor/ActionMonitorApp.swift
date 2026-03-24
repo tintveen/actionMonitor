@@ -4,10 +4,12 @@ import SwiftUI
 @main
 struct ActionMonitorApp: App {
     @StateObject private var statusStore: StatusStore
+    @StateObject private var menuBarController: MenuBarStatusItemController
     private let settingsWindowController: SettingsWindowController
 
     init() {
         NSWindow.allowsAutomaticWindowTabbing = false
+        NSApplication.shared.setActivationPolicy(.accessory)
 
         let settingsWindowController = SettingsWindowController()
         let launchMode = AppLaunchMode()
@@ -36,6 +38,7 @@ struct ActionMonitorApp: App {
         settingsWindowController.store = store
         self.settingsWindowController = settingsWindowController
         _statusStore = StateObject(wrappedValue: store)
+        _menuBarController = StateObject(wrappedValue: MenuBarStatusItemController(store: store))
 
         DispatchQueue.main.async {
             store.start()
@@ -43,18 +46,8 @@ struct ActionMonitorApp: App {
     }
 
     var body: some Scene {
-        MenuBarExtra {
-            MenuBarContentView(
-                store: statusStore,
-                showSettingsWindow: statusStore.showSettings
-            )
-                .frame(width: 360)
-                .onAppear {
-                    statusStore.refreshNow()
-                }
-        } label: {
-            MenuBarIconView(status: statusStore.combinedStatus)
+        Settings {
+            EmptyView()
         }
-        .menuBarExtraStyle(.window)
     }
 }

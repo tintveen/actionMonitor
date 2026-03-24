@@ -286,19 +286,21 @@ private struct SiteStatusCard: View {
 
 struct MenuBarIconView: View {
     let status: DeployStatus
+    private static let iconSideLength: CGFloat = 13
 
     var body: some View {
         Image(systemName: status.symbolName)
             .renderingMode(.template)
             .symbolRenderingMode(.monochrome)
             .foregroundStyle(.primary)
-            .font(.system(size: 14, weight: .semibold))
-            .frame(width: 14, height: 14)
+            .font(.system(size: Self.iconSideLength, weight: .semibold))
+            .frame(width: Self.iconSideLength, height: Self.iconSideLength, alignment: .center)
+            .fixedSize()
             .help(status.accessibilityLabel)
     }
 }
 
-private extension DeployStatus {
+extension DeployStatus {
     var symbolName: String {
         switch self {
         case .running:
