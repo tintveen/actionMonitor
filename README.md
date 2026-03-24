@@ -1,6 +1,6 @@
 # actionMonitor
 
-![actionMonitor icon](docs/app-icon.svg)
+![actionMonitor icon](docs/actionMonitor-icon.svg)
 
 `actionMonitor` is a macOS menu bar app for watching GitHub Actions workflows that matter to you. Configure the workflows you want to monitor, connect GitHub in the browser, choose which accessible repositories this Mac can monitor, and get a compact status view from the menu bar.
 

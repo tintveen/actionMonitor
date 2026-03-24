@@ -5,7 +5,7 @@ import SwiftUI
 @MainActor
 final class MenuBarStatusItemController: NSObject, ObservableObject {
     private enum Layout {
-        static let iconSideLength: CGFloat = 13
+        static let iconSideLength: CGFloat = 18
         static let popoverWidth: CGFloat = 360
     }
 
@@ -70,21 +70,27 @@ final class MenuBarStatusItemController: NSObject, ObservableObject {
             return
         }
 
-        let configuration = NSImage.SymbolConfiguration(
-            pointSize: Layout.iconSideLength,
-            weight: .semibold
-        )
+        let usesBrandedFallback = status == .unknown && store.showsFreshInstallAuthenticationCTA
+        let image: NSImage?
 
-        let image = NSImage(
-            systemSymbolName: status.symbolName,
-            accessibilityDescription: status.accessibilityLabel
-        )?.withSymbolConfiguration(configuration)
+        if usesBrandedFallback {
+            image = Self.actionMonitorIconImage
+        } else {
+            let configuration = NSImage.SymbolConfiguration(
+                pointSize: Layout.iconSideLength,
+                weight: .semibold
+            )
 
-        image?.isTemplate = true
-        image?.size = NSSize(width: Layout.iconSideLength, height: Layout.iconSideLength)
+            image = NSImage(
+                systemSymbolName: status.symbolName,
+                accessibilityDescription: status.accessibilityLabel
+            )?.withSymbolConfiguration(configuration)
+            image?.isTemplate = true
+            image?.size = NSSize(width: Layout.iconSideLength, height: Layout.iconSideLength)
+        }
 
         button.image = image
-        button.toolTip = status.accessibilityLabel
+        button.toolTip = usesBrandedFallback ? "Set up actionMonitor" : status.accessibilityLabel
         button.contentTintColor = nil
     }
 
@@ -109,5 +115,87 @@ final class MenuBarStatusItemController: NSObject, ObservableObject {
 
     private func dismissPopover() {
         popover.performClose(nil)
+    }
+
+    private static var actionMonitorIconImage: NSImage {
+        let size = NSSize(width: Layout.iconSideLength, height: Layout.iconSideLength)
+
+        let image = NSImage(size: size, flipped: false) { rect in
+            guard let context = NSGraphicsContext.current?.cgContext else {
+                return false
+            }
+
+            drawActionMonitorIcon(in: rect, context: context)
+            return true
+        }
+
+        image.size = size
+        image.isTemplate = false
+        return image
+    }
+
+    private static func drawActionMonitorIcon(in rect: CGRect, context: CGContext) {
+        let artBounds = CGRect(x: 250, y: 276, width: 524, height: 472)
+        let scale = min(rect.width / artBounds.width, rect.height / artBounds.height)
+
+        context.saveGState()
+        context.translateBy(x: rect.midX, y: rect.midY)
+        context.scaleBy(x: scale, y: scale)
+        context.scaleBy(x: 1, y: -1)
+        context.translateBy(x: -artBounds.midX, y: -artBounds.midY)
+        context.setAllowsAntialiasing(true)
+        context.setShouldAntialias(true)
+
+        let ringColors = [
+            NSColor(red: 0.12, green: 0.71, blue: 1.00, alpha: 1.0).cgColor,
+            NSColor(red: 0.49, green: 1.00, blue: 0.31, alpha: 1.0).cgColor,
+        ] as CFArray
+        let checkColors = [
+            NSColor(red: 0.12, green: 0.71, blue: 1.00, alpha: 1.0).cgColor,
+            NSColor(red: 0.49, green: 1.00, blue: 0.31, alpha: 1.0).cgColor,
+        ] as CFArray
+        let gradientSpace = CGColorSpaceCreateDeviceRGB()
+
+        context.saveGState()
+        context.setShadow(offset: .zero, blur: 18, color: NSColor(calibratedWhite: 0, alpha: 0.22).cgColor)
+        let ringPath = CGPath(ellipseIn: CGRect(x: 276, y: 276, width: 472, height: 472), transform: nil)
+        context.addPath(ringPath)
+        context.setLineWidth(34)
+        context.setLineCap(.round)
+        context.replacePathWithStrokedPath()
+        context.clip()
+        if let gradient = CGGradient(colorsSpace: gradientSpace, colors: ringColors, locations: [0, 1]) {
+            context.drawLinearGradient(
+                gradient,
+                start: CGPoint(x: 250, y: 320),
+                end: CGPoint(x: 774, y: 704),
+                options: []
+            )
+        }
+        context.restoreGState()
+
+        context.saveGState()
+        context.setShadow(offset: .zero, blur: 14, color: NSColor(calibratedWhite: 0, alpha: 0.18).cgColor)
+        let checkPath = CGMutablePath()
+        checkPath.move(to: CGPoint(x: 427, y: 510))
+        checkPath.addLine(to: CGPoint(x: 493, y: 576))
+        checkPath.addLine(to: CGPoint(x: 635, y: 434))
+        context.addPath(checkPath)
+        context.setLineWidth(38)
+        context.setLineCap(.round)
+        context.setLineJoin(.round)
+        context.replacePathWithStrokedPath()
+        context.clip()
+        if let gradient = CGGradient(colorsSpace: gradientSpace, colors: checkColors, locations: [0, 1]) {
+            context.drawLinearGradient(
+                gradient,
+                start: CGPoint(x: 412, y: 470),
+                end: CGPoint(x: 665, y: 625),
+                options: []
+            )
+        }
+        context.restoreGState()
+
+        context.restoreGState()
     }
 }
