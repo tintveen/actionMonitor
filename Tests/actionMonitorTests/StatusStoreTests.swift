@@ -3,7 +3,7 @@ import XCTest
 
 @MainActor
 final class StatusStoreTests: XCTestCase {
-    func testStartShowsGitHubSignInOnboardingWhenSetupIsIncomplete() {
+    func testStartShowsFreshInstallAuthenticationStateWhenSetupIsIncomplete() {
         let presenter = TestSettingsPresenter()
         let authManager = TestGitHubAuthManager(configuration: configuredOAuth())
         let setupStore = TestAppSetupStore(didCompleteOnboarding: false)
@@ -17,9 +17,11 @@ final class StatusStoreTests: XCTestCase {
 
         store.start()
 
-        XCTAssertEqual(store.onboardingStep, .githubSignIn)
-        XCTAssertEqual(presenter.showOnboardingSteps, [.githubSignIn])
+        XCTAssertNil(store.onboardingStep)
+        XCTAssertTrue(store.showsFreshInstallAuthenticationCTA)
+        XCTAssertEqual(presenter.showOnboardingSteps, [])
         XCTAssertEqual(authManager.ensureSessionLoadedCallCount, 0)
+        XCTAssertEqual(presenter.openedExternalURLs, [])
     }
 
     func testStartDoesNotRestoreSavedSessionWhenNoWorkflowExists() {
@@ -37,10 +39,12 @@ final class StatusStoreTests: XCTestCase {
 
         store.start()
 
-        XCTAssertEqual(store.onboardingStep, .githubSignIn)
-        XCTAssertEqual(presenter.showOnboardingSteps, [.githubSignIn])
+        XCTAssertNil(store.onboardingStep)
+        XCTAssertTrue(store.showsFreshInstallAuthenticationCTA)
+        XCTAssertEqual(presenter.showOnboardingSteps, [])
         XCTAssertEqual(store.authState, .signedOut)
         XCTAssertEqual(authManager.ensureSessionLoadedCallCount, 0)
+        XCTAssertEqual(presenter.openedExternalURLs, [])
     }
 
     func testExistingSessionAndWorkflowAutoCompletesOnboarding() {
@@ -76,10 +80,37 @@ final class StatusStoreTests: XCTestCase {
         store.start()
 
         XCTAssertNil(store.onboardingStep)
+        XCTAssertFalse(store.showsFreshInstallAuthenticationCTA)
         XCTAssertEqual(presenter.showOnboardingSteps, [])
         XCTAssertEqual(store.authState, .signedOut)
         XCTAssertEqual(authManager.ensureSessionLoadedCallCount, 0)
         XCTAssertEqual(setupStore.savedValues.last, true)
+    }
+
+    func testFreshInstallAuthenticateWithGitHubOpensBrowserImmediately() async {
+        let presenter = TestSettingsPresenter()
+        let authManager = TestGitHubAuthManager(
+            configuration: configuredOAuth(),
+            preparedContext: browserAuthorizationContext(),
+            completedSession: githubOAuthSession()
+        )
+        let store = StatusStore(
+            workflowStore: InMemoryMonitoredWorkflowStore(),
+            appSetupStore: TestAppSetupStore(didCompleteOnboarding: false),
+            settingsPresenter: presenter,
+            authManager: authManager,
+            promptsForIncompleteSetup: true
+        )
+
+        store.start()
+        store.beginGitHubSignIn()
+
+        await waitForCondition {
+            authManager.completeAuthorizationCallCount == 1 && !store.isGitHubSignInBusy
+        }
+
+        XCTAssertEqual(presenter.openedExternalURLs, [browserAuthorizationContext().authorizationURL])
+        XCTAssertEqual(authManager.ensureSessionLoadedCallCount, 0)
     }
 
     func testBrowserSignInPersistsSessionOpensBrowserAndAdvancesToWorkflowStep() async {
@@ -478,7 +509,7 @@ final class StatusStoreTests: XCTestCase {
         XCTAssertEqual(presenter.dismissOnboardingCallCount, 1)
     }
 
-    func testSignOutAfterCompletionMarksSetupIncompleteAgain() {
+    func testSignOutAfterCompletionKeepsReturningUserOutOfFreshInstallState() {
         let setupStore = TestAppSetupStore(didCompleteOnboarding: true)
         let authManager = TestGitHubAuthManager(
             configuration: configuredOAuth(),
@@ -494,9 +525,9 @@ final class StatusStoreTests: XCTestCase {
 
         store.signOut()
 
-        XCTAssertTrue(store.shouldRouteSettingsToOnboarding)
         XCTAssertEqual(store.authState, .signedOut)
-        XCTAssertEqual(setupStore.savedValues.last, false)
+        XCTAssertFalse(store.showsFreshInstallAuthenticationCTA)
+        XCTAssertNil(setupStore.savedValues.last)
         XCTAssertNil(authManager.session)
     }
 
@@ -559,6 +590,82 @@ final class StatusStoreTests: XCTestCase {
 
         XCTAssertEqual(presenter.showSettingsDirectlyCallCount, 1)
         XCTAssertEqual(store.authState, .signedInOAuthApp(githubOAuthSession(selectedRepositoryIDs: [repository.id]).summary))
+    }
+
+    func testResetAppClearsPersistedStateAndClosesSettings() async throws {
+        let presenter = TestSettingsPresenter()
+        let workflowStore = InMemoryMonitoredWorkflowStore(initialWorkflows: [sampleWorkflow()])
+        let setupStore = TestAppSetupStore(didCompleteOnboarding: true)
+        let authManager = TestGitHubAuthManager(
+            configuration: configuredOAuth(),
+            session: githubOAuthSession()
+        )
+        let store = StatusStore(
+            workflowStore: workflowStore,
+            appSetupStore: setupStore,
+            settingsPresenter: presenter,
+            authManager: authManager,
+            promptsForIncompleteSetup: false
+        )
+
+        store.showSettingsDirectly()
+        await waitForCondition {
+            store.hasStoredCredential
+        }
+
+        store.resetApp()
+
+        await waitForCondition {
+            !store.isResetting && store.workflows.isEmpty
+        }
+
+        XCTAssertTrue(store.showsFreshInstallAuthenticationCTA)
+        XCTAssertEqual(store.authState, .signedOut)
+        XCTAssertEqual(try workflowStore.loadWorkflows(), [])
+        XCTAssertFalse(setupStore.loadDidCompleteOnboarding())
+        XCTAssertEqual(presenter.dismissSettingsCallCount, 1)
+        XCTAssertEqual(presenter.dismissOnboardingCallCount, 1)
+    }
+
+    func testResetAppCanBeRetriedAfterWorkflowResetFailure() async {
+        let presenter = TestSettingsPresenter()
+        let workflowStore = ResettableTestWorkflowStore(
+            workflows: [sampleWorkflow()],
+            resetError: MonitoredWorkflowStoreError.failedToSave(
+                URL(fileURLWithPath: "/tmp/monitored-workflows.json"),
+                "boom"
+            )
+        )
+        let setupStore = TestAppSetupStore(didCompleteOnboarding: true)
+        let authManager = TestGitHubAuthManager(
+            configuration: configuredOAuth(),
+            session: githubOAuthSession()
+        )
+        let store = StatusStore(
+            workflowStore: workflowStore,
+            appSetupStore: setupStore,
+            settingsPresenter: presenter,
+            authManager: authManager,
+            promptsForIncompleteSetup: false
+        )
+
+        store.resetApp()
+        await waitForCondition {
+            !store.isResetting && store.resetMessage != nil
+        }
+
+        XCTAssertEqual(store.workflows.count, 1)
+        XCTAssertNotNil(store.resetMessage)
+
+        workflowStore.resetError = nil
+        store.resetApp()
+
+        await waitForCondition {
+            !store.isResetting && store.workflows.isEmpty
+        }
+
+        XCTAssertTrue(store.showsFreshInstallAuthenticationCTA)
+        XCTAssertNil(store.resetMessage)
     }
 }
 
@@ -656,6 +763,7 @@ private final class TestGitHubAuthManager: GitHubAuthManaging, @unchecked Sendab
 private final class TestAppSetupStore: AppSetupStore, @unchecked Sendable {
     private var didCompleteOnboarding: Bool
     private(set) var savedValues: [Bool] = []
+    private(set) var resetCallCount = 0
 
     init(didCompleteOnboarding: Bool) {
         self.didCompleteOnboarding = didCompleteOnboarding
@@ -669,12 +777,18 @@ private final class TestAppSetupStore: AppSetupStore, @unchecked Sendable {
         savedValues.append(didCompleteOnboarding)
         self.didCompleteOnboarding = didCompleteOnboarding
     }
+
+    func resetDidCompleteOnboarding() {
+        resetCallCount += 1
+        didCompleteOnboarding = false
+    }
 }
 
 @MainActor
 private final class TestSettingsPresenter: SettingsPresenting {
     private(set) var showSettingsCallCount = 0
     private(set) var showSettingsDirectlyCallCount = 0
+    private(set) var dismissSettingsCallCount = 0
     private(set) var showOnboardingSteps: [OnboardingStep] = []
     private(set) var dismissOnboardingCallCount = 0
     private(set) var openedExternalURLs: [URL] = []
@@ -687,6 +801,10 @@ private final class TestSettingsPresenter: SettingsPresenting {
         showSettingsDirectlyCallCount += 1
     }
 
+    func dismissSettings() {
+        dismissSettingsCallCount += 1
+    }
+
     func showOnboarding(startingAt step: OnboardingStep) {
         showOnboardingSteps.append(step)
     }
@@ -697,6 +815,32 @@ private final class TestSettingsPresenter: SettingsPresenting {
 
     func openExternalURL(_ url: URL) {
         openedExternalURLs.append(url)
+    }
+}
+
+private final class ResettableTestWorkflowStore: MonitoredWorkflowStore, @unchecked Sendable {
+    private var workflows: [MonitoredWorkflow]
+    var resetError: Error?
+
+    init(workflows: [MonitoredWorkflow], resetError: Error? = nil) {
+        self.workflows = workflows
+        self.resetError = resetError
+    }
+
+    func loadWorkflows() throws -> [MonitoredWorkflow] {
+        workflows
+    }
+
+    func saveWorkflows(_ workflows: [MonitoredWorkflow]) throws {
+        self.workflows = workflows
+    }
+
+    func resetWorkflows() throws {
+        if let resetError {
+            throw resetError
+        }
+
+        workflows = []
     }
 }
 

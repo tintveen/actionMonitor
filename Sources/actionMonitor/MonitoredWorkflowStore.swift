@@ -3,6 +3,7 @@ import Foundation
 protocol MonitoredWorkflowStore: Sendable {
     func loadWorkflows() throws -> [MonitoredWorkflow]
     func saveWorkflows(_ workflows: [MonitoredWorkflow]) throws
+    func resetWorkflows() throws
 }
 
 enum MonitoredWorkflowStoreError: LocalizedError {
@@ -80,6 +81,18 @@ struct FileBackedMonitoredWorkflowStore: MonitoredWorkflowStore {
             throw MonitoredWorkflowStoreError.failedToSave(fileURL, error.localizedDescription)
         }
     }
+
+    func resetWorkflows() throws {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            return
+        }
+
+        do {
+            try FileManager.default.removeItem(at: fileURL)
+        } catch {
+            throw MonitoredWorkflowStoreError.failedToSave(fileURL, error.localizedDescription)
+        }
+    }
 }
 
 final class InMemoryMonitoredWorkflowStore: MonitoredWorkflowStore, @unchecked Sendable {
@@ -95,5 +108,9 @@ final class InMemoryMonitoredWorkflowStore: MonitoredWorkflowStore, @unchecked S
 
     func saveWorkflows(_ workflows: [MonitoredWorkflow]) throws {
         self.workflows = workflows
+    }
+
+    func resetWorkflows() throws {
+        workflows = []
     }
 }

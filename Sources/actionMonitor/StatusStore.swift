@@ -34,9 +34,11 @@ final class StatusStore: ObservableObject {
     @Published private(set) var states: [DeployState]
     @Published private(set) var combinedStatus: DeployStatus
     @Published private(set) var isRefreshing = false
+    @Published private(set) var isResetting = false
     @Published private(set) var bannerMessage: String?
     @Published private(set) var authState: GitHubAuthState
     @Published private(set) var credentialMessage: String?
+    @Published private(set) var resetMessage: String?
     @Published private(set) var workflowConfigurationMessage: String?
     @Published private(set) var gitHubSignInConfigurationMessage: String?
     @Published private(set) var onboardingStep: OnboardingStep?
@@ -63,6 +65,7 @@ final class StatusStore: ObservableObject {
     private var signInTask: Task<Void, Never>?
     private var accessDirectoryTask: Task<Void, Never>?
     private var workflowDiscoveryTask: Task<Void, Never>?
+    private var resetTask: Task<Void, Never>?
     private var didStart = false
     private var hasPromptedForAuthFailure = false
     private var pendingRefresh = false
@@ -189,6 +192,10 @@ final class StatusStore: ObservableObject {
         allowsPersonalAccessTokenFallback
     }
 
+    var showsFreshInstallAuthenticationCTA: Bool {
+        workflows.isEmpty && !didCompleteOnboarding && currentSession == nil
+    }
+
     func start() {
         guard !didStart else {
             return
@@ -197,10 +204,6 @@ final class StatusStore: ObservableObject {
         didStart = true
         refreshNow()
         beginRefreshLoop()
-
-        if promptsForIncompleteSetup && !didCompleteOnboarding {
-            showOnboardingIfNeeded()
-        }
     }
 
     func refreshNow() {
@@ -386,14 +389,46 @@ final class StatusStore: ObservableObject {
             cancelGitHubSignInIfNeeded()
             try clearSavedSession(message: "Saved GitHub session removed.")
             hasPromptedForAuthFailure = false
-            didCompleteOnboarding = false
-            appSetupStore.saveDidCompleteOnboarding(false)
+            if workflows.isEmpty {
+                didCompleteOnboarding = false
+                appSetupStore.saveDidCompleteOnboarding(false)
+            }
             if onboardingStep != nil {
                 onboardingStep = workflows.isEmpty ? .welcome : .githubSignIn
             }
             refreshNow()
         } catch {
             credentialMessage = error.localizedDescription
+        }
+    }
+
+    func resetApp() {
+        guard resetTask == nil else {
+            return
+        }
+
+        cancelWorkInFlightForReset()
+        isResetting = true
+        resetMessage = nil
+
+        resetTask = Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+
+            do {
+                try self.workflowStore.resetWorkflows()
+                self.appSetupStore.resetDidCompleteOnboarding()
+                try self.authManager.disconnect()
+                self.applySuccessfulResetState()
+                self.windowPresenter.dismissOnboarding()
+                self.windowPresenter.dismissSettings()
+            } catch {
+                self.reconcileStateAfterFailedReset(error: error)
+            }
+
+            self.isResetting = false
+            self.resetTask = nil
         }
     }
 
@@ -1158,6 +1193,84 @@ final class StatusStore: ObservableObject {
         authManager.cancelAuthorization()
         signInTask?.cancel()
         signInTask = nil
+    }
+
+    private func cancelWorkInFlightForReset() {
+        authManager.cancelAuthorization()
+        signInTask?.cancel()
+        signInTask = nil
+        refreshTask?.cancel()
+        refreshTask = nil
+        accessDirectoryTask?.cancel()
+        accessDirectoryTask = nil
+        workflowDiscoveryTask?.cancel()
+        workflowDiscoveryTask = nil
+        refreshLoopTask?.cancel()
+        refreshLoopTask = nil
+        pendingRefresh = false
+        isRefreshing = false
+        isLoadingGitHubAccess = false
+        isDiscoveringWorkflows = false
+    }
+
+    private func applySuccessfulResetState() {
+        workflowsVersion += 1
+        replaceWorkflows(with: [])
+        resetWorkflowDiscoveryState()
+        currentSession = nil
+        sessionIdentity = nil
+        authState = .signedOut
+        credentialMessage = nil
+        resetMessage = nil
+        bannerMessage = nil
+        workflowConfigurationMessage = nil
+        accessibleRepositories = []
+        onboardingStep = nil
+        didCompleteOnboarding = false
+        hasPromptedForAuthFailure = false
+        if didStart {
+            beginRefreshLoop()
+        }
+    }
+
+    private func reconcileStateAfterFailedReset(error: Error) {
+        let reloadedWorkflows: [MonitoredWorkflow]
+        do {
+            reloadedWorkflows = try workflowStore.loadWorkflows()
+            workflowConfigurationMessage = nil
+        } catch {
+            reloadedWorkflows = []
+            workflowConfigurationMessage = error.localizedDescription
+        }
+
+        workflowsVersion += 1
+        replaceWorkflows(with: reloadedWorkflows)
+        didCompleteOnboarding = appSetupStore.loadDidCompleteOnboarding()
+        accessibleRepositories = []
+        resetWorkflowDiscoveryState()
+        isLoadingGitHubAccess = false
+        hasPromptedForAuthFailure = false
+        onboardingStep = nil
+        resetMessage = "Reset App failed: \(error.localizedDescription)"
+
+        do {
+            let session = try authManager.loadPersistedSession()
+            synchronizeSession(session, successMessage: nil)
+        } catch CredentialStoreError.migrationRequired {
+            currentSession = nil
+            sessionIdentity = nil
+            authState = .signedOut
+            credentialMessage = CredentialStoreError.migrationRequired.localizedDescription
+        } catch {
+            currentSession = nil
+            sessionIdentity = nil
+            authState = .authError(error.localizedDescription)
+            credentialMessage = error.localizedDescription
+        }
+
+        if didStart {
+            beginRefreshLoop()
+        }
     }
 
     private func showOnboardingIfNeeded() {

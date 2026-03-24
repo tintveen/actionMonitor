@@ -8,6 +8,7 @@ struct SettingsView: View {
     @State private var editorDraft = MonitoredWorkflowDraft()
     @State private var editingWorkflowID: UUID?
     @State private var isEditorPresented = false
+    @State private var isResetConfirmationPresented = false
     @State private var workflowActionMessage: String?
     @State private var workflowEditorMessage: String?
 
@@ -20,7 +21,9 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 24) {
                 workflowsSection
                 authSection
+                dangerZoneSection
             }
+            .disabled(store.isResetting)
             .padding(24)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -44,6 +47,14 @@ struct SettingsView: View {
                 },
                 onSave: saveWorkflow
             )
+        }
+        .alert("Reset App?", isPresented: $isResetConfirmationPresented) {
+            Button("Cancel", role: .cancel) {}
+            Button("Reset App", role: .destructive) {
+                store.resetApp()
+            }
+        } message: {
+            Text("This will remove monitored workflows on this Mac, clear saved GitHub credentials, and reset onboarding/setup progress.")
         }
     }
 
@@ -177,6 +188,43 @@ struct SettingsView: View {
                         message: credentialMessage,
                         tint: .blue
                     )
+                }
+            }
+        }
+    }
+
+    private var dangerZoneSection: some View {
+        SettingsSectionCard {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Danger Zone")
+                        .font(.system(size: 22, weight: .semibold, design: .rounded))
+
+                    Text("Reset actionMonitor to a fresh-install state on this Mac. This removes monitored workflows, clears saved GitHub credentials, and wipes onboarding/setup progress.")
+                        .foregroundStyle(.secondary)
+                }
+
+                if let resetMessage = store.resetMessage {
+                    InlineMessageView(
+                        systemImage: "exclamationmark.circle.fill",
+                        message: resetMessage,
+                        tint: .red
+                    )
+                }
+
+                HStack(spacing: 12) {
+                    Button(role: .destructive) {
+                        isResetConfirmationPresented = true
+                    } label: {
+                        if store.isResetting {
+                            Label("Resetting…", systemImage: "arrow.triangle.2.circlepath")
+                        } else {
+                            Label("Reset App…", systemImage: "trash")
+                        }
+                    }
+                    .disabled(store.isResetting)
+
+                    Spacer()
                 }
             }
         }

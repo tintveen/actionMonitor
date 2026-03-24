@@ -3,6 +3,7 @@ import Foundation
 protocol AppSetupStore: Sendable {
     func loadDidCompleteOnboarding() -> Bool
     func saveDidCompleteOnboarding(_ didCompleteOnboarding: Bool)
+    func resetDidCompleteOnboarding()
 }
 
 struct UserDefaultsAppSetupStore: AppSetupStore, @unchecked Sendable {
@@ -24,6 +25,10 @@ struct UserDefaultsAppSetupStore: AppSetupStore, @unchecked Sendable {
     func saveDidCompleteOnboarding(_ didCompleteOnboarding: Bool) {
         defaults.set(didCompleteOnboarding, forKey: key)
     }
+
+    func resetDidCompleteOnboarding() {
+        defaults.removeObject(forKey: key)
+    }
 }
 
 struct DemoAppSetupStore: AppSetupStore {
@@ -32,4 +37,6 @@ struct DemoAppSetupStore: AppSetupStore {
     }
 
     func saveDidCompleteOnboarding(_ didCompleteOnboarding: Bool) {}
+
+    func resetDidCompleteOnboarding() {}
 }

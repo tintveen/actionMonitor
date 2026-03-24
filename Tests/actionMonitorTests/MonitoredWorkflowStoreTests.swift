@@ -66,6 +66,28 @@ final class MonitoredWorkflowStoreTests: XCTestCase {
         XCTAssertEqual(loadedWorkflow.workflowFile, "deploy.yml")
     }
 
+    func testFileBackedStoreResetRemovesPersistedWorkflowFile() throws {
+        let fileURL = temporaryFileURL()
+        let store = FileBackedMonitoredWorkflowStore(fileURL: fileURL)
+        let workflow = MonitoredWorkflow(
+            id: UUID(uuidString: "778EB9D3-854F-43AB-99B4-1C41DCE14544")!,
+            displayName: "First",
+            owner: "octo-org",
+            repo: "first",
+            branch: "main",
+            workflowFile: "deploy.yml",
+            siteURL: nil
+        )
+
+        try store.saveWorkflows([workflow])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
+
+        try store.resetWorkflows()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path))
+        XCTAssertEqual(try store.loadWorkflows(), [])
+    }
+
     func testFileBackedStoreThrowsCorruptedFileError() throws {
         let fileURL = temporaryFileURL()
         try FileManager.default.createDirectory(
