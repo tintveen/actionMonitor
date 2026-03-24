@@ -20,8 +20,12 @@ struct SettingsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                actionsSection
-                dangerZoneSection
+                workflowsSection
+                if store.supportsRepositorySelection {
+                    repositoryAccessSection
+                }
+                workflowsDiscoverySection
+                controlsSection
             }
             .disabled(store.isResetting)
             .padding(20)
@@ -49,35 +53,27 @@ struct SettingsView: View {
         }
     }
 
-    private var actionsSection: some View {
+    private var workflowsSection: some View {
         SettingsSectionCard {
-            VStack(alignment: .leading, spacing: 14) {
-                SettingsSectionHeader(
-                    title: "Actions",
-                    detail: store.workflows.isEmpty ? "None added" : "\(store.workflows.count) added"
-                )
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    SettingsSectionHeader(
+                        title: "Actions",
+                        detail: store.workflows.isEmpty ? "None added" : "\(store.workflows.count) added"
+                    )
 
-                VStack(alignment: .leading, spacing: 10) {
-                    authCard
+                    Spacer()
 
                     refreshFrequencyButton
                 }
 
-                if let configurationMessage = store.gitHubSignInConfigurationMessage {
+                if let workflowConfigurationMessage = store.workflowConfigurationMessage {
                     InlineMessageView(
-                        systemImage: "gear.badge.xmark",
-                        message: configurationMessage,
+                        systemImage: "exclamationmark.triangle.fill",
+                        message: workflowConfigurationMessage,
                         tint: .orange
                     )
-                } else if let visibleCredentialMessage {
-                    InlineMessageView(
-                        systemImage: "info.circle.fill",
-                        message: visibleCredentialMessage,
-                        tint: .blue
-                    )
                 }
-
-                Divider()
 
                 if store.workflows.isEmpty {
                     VStack(alignment: .leading, spacing: 4) {
@@ -89,7 +85,7 @@ struct SettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                 } else {
-                    VStack(spacing: 10) {
+                    VStack(spacing: 8) {
                         ForEach(Array(store.workflows.enumerated()), id: \.element.id) { index, workflow in
                             WorkflowRow(
                                 workflow: workflow,
@@ -104,48 +100,6 @@ struct SettingsView: View {
                     }
                 }
 
-                if store.supportsRepositorySelection {
-                    repositoryAccessSection
-                }
-
-                if store.canDiscoverWorkflows ||
-                    store.isDiscoveringWorkflows ||
-                    store.workflowDiscoveryMessage != nil ||
-                    !store.discoveredWorkflowSuggestions.isEmpty {
-                    Divider()
-
-                    DisclosureGroup(isExpanded: $isWorkflowsExpanded) {
-                        WorkflowDiscoveryReviewView(
-                            store: store,
-                            addButtonTitle: store.selectedDiscoveredWorkflowCount == 1
-                                ? "Add 1"
-                                : "Add Selected",
-                            onAddSelected: addDiscoveredWorkflows,
-                            manualActionTitle: nil,
-                            manualAction: nil,
-                            zeroSelectionActionTitle: "Open Repositories",
-                            zeroSelectionAction: {
-                                isRepositoryAccessExpanded = true
-                            }
-                        )
-                        .padding(.top, 8)
-                    } label: {
-                        SettingsSubsectionHeader(
-                            title: "Workflows",
-                            detail: workflowDiscoverySummary
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                if let workflowConfigurationMessage = store.workflowConfigurationMessage {
-                    InlineMessageView(
-                        systemImage: "exclamationmark.triangle.fill",
-                        message: workflowConfigurationMessage,
-                        tint: .orange
-                    )
-                }
-
                 if let workflowActionMessage {
                     InlineMessageView(
                         systemImage: "exclamationmark.circle.fill",
@@ -157,20 +111,34 @@ struct SettingsView: View {
         }
     }
 
-    private var dangerZoneSection: some View {
+    private var controlsSection: some View {
         SettingsSectionCard {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .center, spacing: 12) {
+                githubActionButton(
+                    title: store.authState.signedInSummary == nil ? "Sign In" : "Sign Out",
+                    isEnabled: store.authState.signedInSummary == nil
+                        ? (store.gitHubSignInIsAvailable && !store.isGitHubSignInBusy)
+                        : true,
+                    action: {
+                        if store.authState.signedInSummary == nil {
+                            store.beginGitHubSignIn()
+                        } else {
+                            store.signOut()
+                        }
+                    }
+                )
+                .frame(maxWidth: .infinity, minHeight: 36, alignment: .center)
+
                 Button(role: .destructive) {
                     isResetConfirmationPresented = true
                 } label: {
-                    Label("Reset App", systemImage: "trash")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
+                    SettingsDangerButtonLabel(title: "Reset App", systemImage: "trash")
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
                 .tint(.red)
                 .disabled(store.isResetting)
+                .frame(maxWidth: .infinity, minHeight: 36, alignment: .center)
 
                 if let resetMessage = store.resetMessage {
                     InlineMessageView(
@@ -183,98 +151,38 @@ struct SettingsView: View {
         }
     }
 
-    @ViewBuilder
-    private var authCard: some View {
-        switch store.authState {
-        case .signedOut:
-            authCallToActionCard(
-                title: "No GitHub session",
-                description: "Browser sign-in is the simplest setup."
-            )
-        case .authError:
-            VStack(alignment: .leading, spacing: 12) {
-                if let authErrorMessage = visibleAuthErrorMessage {
-                    InlineMessageView(
-                        systemImage: "exclamationmark.circle.fill",
-                        message: authErrorMessage,
-                        tint: .red
-                    )
-                }
-
-                authCallToActionCard(
-                    title: "Sign-in needs attention",
-                    description: "Start the browser flow again to restore access."
-                )
-            }
-        case .signingInBrowser(let context):
-            BrowserSignInCard(
-                context: context,
-                reopenBrowser: {
-                    store.reopenBrowserSignIn()
-                },
-                cancelSignIn: {
-                    store.cancelGitHubSignIn()
-                }
-            )
-        case .signedInOAuthApp(let summary):
-            CredentialSummaryCard(
-                summary: summary,
-                title: "GitHub connected",
-                subtitle: "Connected with browser sign-in.",
-                primaryButtonTitle: "Sign In Again",
-                primaryAction: {
-                    store.beginGitHubSignIn()
-                },
-                primaryActionDisabled: !store.gitHubSignInIsAvailable || store.isGitHubSignInBusy,
-                secondaryButtonTitle: "Sign Out",
-                secondaryAction: {
-                    store.signOut()
-                }
-            )
-        case .signedInPersonalAccessToken(let summary):
-            CredentialSummaryCard(
-                summary: summary,
-                title: "Token saved",
-                subtitle: "Requests are authenticated with a personal access token.",
-                primaryButtonTitle: "Use Browser Sign-In",
-                primaryAction: {
-                    store.beginGitHubSignIn()
-                },
-                primaryActionDisabled: !store.gitHubSignInIsAvailable || store.isGitHubSignInBusy,
-                secondaryButtonTitle: "Remove Token",
-                secondaryAction: {
-                    store.signOut()
-                }
-            )
-        }
-    }
-
     private var repositoryAccessSection: some View {
-        DisclosureGroup(isExpanded: $isRepositoryAccessExpanded) {
+        SettingsCollapsibleSection(
+            title: "Repositories",
+            detail: repositoryDetailText,
+            isExpanded: $isRepositoryAccessExpanded
+        ) {
             VStack(alignment: .leading, spacing: 10) {
                 if store.accessibleRepositories.isEmpty {
                     Text(store.isLoadingGitHubAccess ? "Loading repositories…" : "No repositories available.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
-                        .padding(.top, 8)
+                        .padding(.top, 2)
                 } else {
                     HStack(spacing: 8) {
-                        Button("All") {
+                        Button("Select All") {
                             store.selectAllAccessibleRepositories()
                         }
+                        .buttonStyle(.bordered)
 
                         Button("Clear") {
                             store.clearAccessibleRepositorySelection()
                         }
+                        .buttonStyle(.bordered)
 
                         Button("Reload") {
                             store.reloadGitHubAccess()
                         }
+                        .buttonStyle(.bordered)
 
                         Spacer()
                     }
                     .font(.footnote)
-                    .buttonStyle(.borderless)
 
                     VStack(spacing: 6) {
                         ForEach(store.accessibleRepositories) { repository in
@@ -289,60 +197,7 @@ struct SettingsView: View {
                     }
                 }
             }
-            .padding(.top, 10)
-        } label: {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Repositories")
-                        .font(.headline)
-
-                    Text(store.accessibleRepositories.isEmpty
-                         ? (store.isLoadingGitHubAccess ? "Loading…" : "None loaded")
-                         : "\(store.selectedAccessibleRepositories.count) of \(store.accessibleRepositories.count) selected")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer()
-
-                if store.isLoadingGitHubAccess {
-                    ProgressView()
-                        .controlSize(.small)
-                }
-            }
         }
-        .buttonStyle(.plain)
-    }
-
-    private func authCallToActionCard(title: String, description: String) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(title)
-                .font(.headline)
-
-            Text(description)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-
-            Button {
-                store.beginGitHubSignIn()
-            } label: {
-                GitHubActionButtonLabel(title: "Continue in Browser")
-            }
-            .disabled(!store.gitHubSignInIsAvailable || store.isGitHubSignInBusy)
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .frame(maxWidth: .infinity)
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color(nsColor: .windowBackgroundColor))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Color(nsColor: .separatorColor).opacity(0.45), lineWidth: 1)
-        )
     }
 
     private var refreshFrequencyButton: some View {
@@ -359,47 +214,10 @@ struct SettingsView: View {
                 }
             }
         } label: {
-            HStack(spacing: 10) {
-                Image(systemName: "clock")
-                    .font(.system(size: 14, weight: .semibold))
-
-                Text("Refresh: \(store.workflowRefreshInterval.shortLabel)")
-                    .font(.headline)
-
-                Spacer(minLength: 0)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            SettingsClockActionButtonLabel(title: "Refresh: \(store.workflowRefreshInterval.shortLabel)")
         }
         .menuStyle(.borderedButton)
         .controlSize(.large)
-    }
-
-    private var visibleCredentialMessage: String? {
-        guard let credentialMessage = store.credentialMessage else {
-            return nil
-        }
-
-        if credentialMessage == store.gitHubSignInConfigurationMessage {
-            return nil
-        }
-
-        if case .authError(let message) = store.authState, credentialMessage == message {
-            return nil
-        }
-
-        return credentialMessage
-    }
-
-    private var visibleAuthErrorMessage: String? {
-        guard case .authError(let message) = store.authState else {
-            return nil
-        }
-
-        if message == visibleCredentialMessage || message == store.gitHubSignInConfigurationMessage {
-            return nil
-        }
-
-        return message
     }
 
     private var workflowDiscoverySummary: String {
@@ -412,6 +230,66 @@ struct SettingsView: View {
         }
 
         return "\(store.selectedDiscoveredWorkflowCount) of \(store.selectableDiscoveredWorkflowCount) selected"
+    }
+
+    private var repositoryDetailText: String {
+        if store.accessibleRepositories.isEmpty {
+            return store.isLoadingGitHubAccess ? "Loading…" : "None loaded"
+        }
+
+        return "\(store.selectedAccessibleRepositories.count) of \(store.accessibleRepositories.count) selected"
+    }
+
+    private var workflowsDiscoveryDetailText: String {
+        workflowDiscoverySummary
+    }
+
+    private var workflowsDiscoveryShouldShow: Bool {
+        store.canDiscoverWorkflows ||
+            store.isDiscoveringWorkflows ||
+            store.workflowDiscoveryMessage != nil ||
+            !store.discoveredWorkflowSuggestions.isEmpty
+    }
+
+    @ViewBuilder
+    private var workflowsDiscoverySection: some View {
+        if workflowsDiscoveryShouldShow {
+            SettingsCollapsibleSection(
+                title: "Workflows",
+                detail: workflowsDiscoveryDetailText,
+                isExpanded: $isWorkflowsExpanded
+            ) {
+                WorkflowDiscoveryReviewView(
+                    store: store,
+                    addButtonTitle: store.selectedDiscoveredWorkflowCount == 1
+                        ? "Add 1"
+                        : "Add Selected",
+                    onAddSelected: addDiscoveredWorkflows,
+                    manualActionTitle: nil,
+                    manualAction: nil,
+                    zeroSelectionActionTitle: "Open Repositories",
+                    zeroSelectionAction: {
+                        isRepositoryAccessExpanded = true
+                    }
+                )
+                .padding(.top, 2)
+            }
+        }
+    }
+
+    private func githubActionButton(
+        title: String,
+        isEnabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            GitHubActionButtonLabel(title: title)
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
+        .tint(.black)
+        .disabled(!isEnabled)
+        .frame(maxWidth: .infinity)
     }
 }
 
@@ -471,6 +349,44 @@ private struct SettingsSubsectionHeader: View {
     }
 }
 
+private struct SettingsCollapsibleSection<Content: View>: View {
+    let title: String
+    let detail: String
+    @Binding var isExpanded: Bool
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        SettingsSectionCard {
+            VStack(alignment: .leading, spacing: 0) {
+                Button {
+                    isExpanded.toggle()
+                } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        SettingsSubsectionHeader(title: title, detail: detail)
+
+                        Spacer()
+
+                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                if isExpanded {
+                    Divider()
+                        .padding(.top, 10)
+
+                    content
+                        .padding(.top, 10)
+                }
+            }
+        }
+    }
+}
+
 private struct GitHubActionButtonLabel: View {
     let title: String
 
@@ -481,10 +397,41 @@ private struct GitHubActionButtonLabel: View {
 
             Text(title)
                 .font(.headline)
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+    }
+}
+
+private struct SettingsClockActionButtonLabel: View {
+    let title: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "clock")
+                .font(.system(size: 14, weight: .semibold))
+
+            Text(title)
+                .font(.headline)
 
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct SettingsDangerButtonLabel: View {
+    let title: String
+    let systemImage: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: systemImage)
+                .font(.system(size: 14, weight: .semibold))
+
+            Text(title)
+                .font(.headline)
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 }
 
@@ -505,74 +452,6 @@ private struct SettingsGitHubLogoView: View {
         image.isTemplate = true
         return image
     }()
-}
-
-private struct CredentialSummaryCard: View {
-    let summary: GitHubAuthSessionSummary
-    let title: String
-    let subtitle: String
-    let primaryButtonTitle: String
-    let primaryAction: () -> Void
-    let primaryActionDisabled: Bool
-    let secondaryButtonTitle: String
-    let secondaryAction: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(title)
-                .font(.headline)
-
-            Text(subtitle)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-
-            HStack(spacing: 8) {
-                WorkflowMetaPill(text: summary.source.displayName)
-
-                if summary.selectedRepositoryCount > 0 {
-                    WorkflowMetaPill(text: "\(summary.selectedRepositoryCount) repos")
-                }
-
-                if !summary.grantedScopes.isEmpty {
-                    WorkflowMetaPill(text: summary.grantedScopes.joined(separator: ", "))
-                }
-
-                WorkflowMetaPill(text: summary.savedAt.formatted(date: .abbreviated, time: .shortened))
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-                Button {
-                    primaryAction()
-                } label: {
-                    GitHubActionButtonLabel(title: primaryButtonTitle)
-                }
-                .disabled(primaryActionDisabled)
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .frame(maxWidth: .infinity)
-
-                Button {
-                    secondaryAction()
-                } label: {
-                    GitHubActionButtonLabel(title: secondaryButtonTitle)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .tint(.secondary)
-                .frame(maxWidth: .infinity)
-            }
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color(nsColor: .windowBackgroundColor))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Color(nsColor: .separatorColor).opacity(0.45), lineWidth: 1)
-        )
-    }
 }
 
 extension SettingsView {
@@ -637,48 +516,6 @@ extension SettingsView {
     }
 }
 
-private struct BrowserSignInCard: View {
-    let context: GitHubBrowserAuthorizationContext
-    let reopenBrowser: () -> Void
-    let cancelSignIn: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Finish GitHub sign-in in your browser")
-                .font(.headline)
-
-            Text("The browser is already open. actionMonitor will finish setup when GitHub redirects back.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-
-            Text(context.authorizationURL.absoluteString)
-                .font(.footnote.monospaced())
-                .textSelection(.enabled)
-                .foregroundStyle(.secondary)
-
-            Text("Waiting until \(context.expiresAt.formatted(date: .omitted, time: .shortened)).")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-
-            HStack(spacing: 8) {
-                Button("Open Browser Again", action: reopenBrowser)
-                Button("Cancel", action: cancelSignIn)
-                Spacer()
-            }
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color(nsColor: .windowBackgroundColor))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Color(nsColor: .separatorColor).opacity(0.45), lineWidth: 1)
-        )
-    }
-}
-
 private struct WorkflowRow: View {
     let workflow: MonitoredWorkflow
     let canMoveUp: Bool
@@ -689,14 +526,14 @@ private struct WorkflowRow: View {
     let onMoveDown: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
                     Text(workflow.displayName)
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .font(.system(size: 14.5, weight: .semibold, design: .rounded))
 
                     Text("\(workflow.owner)/\(workflow.repo)")
-                        .font(.subheadline)
+                        .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
 
@@ -733,14 +570,14 @@ private struct WorkflowRow: View {
                 WorkflowMetaPill(text: workflow.workflowFile.workflowFileDisplayName)
             }
         }
-        .padding(12)
+        .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: 11, style: .continuous)
                 .fill(Color(nsColor: .windowBackgroundColor))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: 11, style: .continuous)
                 .strokeBorder(Color(nsColor: .separatorColor).opacity(0.45), lineWidth: 1)
         )
     }
