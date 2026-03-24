@@ -75,7 +75,14 @@ struct SettingsView: View {
                 }
 
                 if store.workflows.isEmpty {
-                    EmptySettingsState(openEditor: openAddWorkflowEditor)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("No workflows added yet.")
+                            .font(.headline)
+
+                        Text("Use the discovery section below to scan your selected GitHub repositories.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
                 } else {
                     VStack(spacing: 10) {
                         ForEach(Array(store.workflows.enumerated()), id: \.element.id) { index, workflow in
@@ -90,24 +97,6 @@ struct SettingsView: View {
                             )
                         }
                     }
-                }
-
-                HStack(spacing: 8) {
-                    Button {
-                        openAddWorkflowEditor()
-                    } label: {
-                        Label("Add", systemImage: "plus")
-                    }
-                    .keyboardShortcut("n")
-
-                    Button {
-                        store.discoverWorkflows()
-                    } label: {
-                        Label("Discover", systemImage: "sparkles")
-                    }
-                    .disabled(!store.canDiscoverWorkflows || store.isDiscoveringWorkflows)
-
-                    Spacer()
                 }
 
                 if store.canDiscoverWorkflows ||
@@ -126,7 +115,7 @@ struct SettingsView: View {
                             store: store,
                             addButtonTitle: store.selectedDiscoveredWorkflowCount == 1
                                 ? "Add 1"
-                                : "Add \(store.selectedDiscoveredWorkflowCount)",
+                                : "Add Selected",
                             onAddSelected: addDiscoveredWorkflows,
                             manualActionTitle: nil,
                             manualAction: nil,
@@ -439,14 +428,6 @@ struct SettingsView: View {
                 Spacer()
             }
         }
-    }
-
-    private func openAddWorkflowEditor() {
-        editorDraft = MonitoredWorkflowDraft()
-        editingWorkflowID = nil
-        workflowEditorMessage = nil
-        workflowActionMessage = nil
-        isEditorPresented = true
     }
 
     private func openEditWorkflowEditor(_ workflow: MonitoredWorkflow) {
@@ -787,37 +768,6 @@ private struct WorkflowRow: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color(nsColor: .separatorColor).opacity(0.45), lineWidth: 1)
-        )
-    }
-}
-
-private struct EmptySettingsState: View {
-    let openEditor: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("No workflows yet.")
-                .font(.headline)
-
-            Text("Add one manually or pull it in from GitHub discovery.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-
-            Button {
-                openEditor()
-            } label: {
-                Label("Add First Workflow", systemImage: "plus")
-            }
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color(nsColor: .windowBackgroundColor))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(Color(nsColor: .separatorColor).opacity(0.45), lineWidth: 1)
         )
     }
