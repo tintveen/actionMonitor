@@ -11,7 +11,8 @@ final class AppSetupStoreTests: XCTestCase {
 
         let store = UserDefaultsAppSetupStore(
             defaults: defaults,
-            key: "actionMonitor.didCompleteOnboarding"
+            didCompleteOnboardingKey: "actionMonitor.didCompleteOnboarding",
+            workflowRefreshIntervalKey: "actionMonitor.workflowRefreshInterval"
         )
 
         store.saveDidCompleteOnboarding(true)
@@ -20,5 +21,41 @@ final class AppSetupStoreTests: XCTestCase {
         store.resetDidCompleteOnboarding()
 
         XCTAssertFalse(store.loadDidCompleteOnboarding())
+    }
+
+    func testWorkflowRefreshIntervalDefaultsToOneMinuteWhenUnset() {
+        let suiteName = UUID().uuidString
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let store = UserDefaultsAppSetupStore(
+            defaults: defaults,
+            didCompleteOnboardingKey: "actionMonitor.didCompleteOnboarding",
+            workflowRefreshIntervalKey: "actionMonitor.workflowRefreshInterval"
+        )
+
+        XCTAssertEqual(store.loadWorkflowRefreshInterval(), .default)
+    }
+
+    func testWorkflowRefreshIntervalCanBeSavedAndReset() {
+        let suiteName = UUID().uuidString
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let store = UserDefaultsAppSetupStore(
+            defaults: defaults,
+            didCompleteOnboardingKey: "actionMonitor.didCompleteOnboarding",
+            workflowRefreshIntervalKey: "actionMonitor.workflowRefreshInterval"
+        )
+
+        store.saveWorkflowRefreshInterval(.twoMinutes)
+        XCTAssertEqual(store.loadWorkflowRefreshInterval(), .twoMinutes)
+
+        store.resetWorkflowRefreshInterval()
+        XCTAssertEqual(store.loadWorkflowRefreshInterval(), .default)
     }
 }

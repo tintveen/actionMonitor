@@ -299,6 +299,68 @@ enum MonitoredWorkflowValidationError: LocalizedError, Equatable {
     }
 }
 
+enum WorkflowRefreshInterval: Int, CaseIterable, Identifiable, Sendable {
+    case fiveSeconds = 5
+    case tenSeconds = 10
+    case fifteenSeconds = 15
+    case thirtySeconds = 30
+    case oneMinute = 60
+    case twoMinutes = 120
+    case fiveMinutes = 300
+
+    static let `default` = WorkflowRefreshInterval.oneMinute
+
+    var id: Int {
+        rawValue
+    }
+
+    var seconds: Int {
+        rawValue
+    }
+
+    var shortLabel: String {
+        switch self {
+        case .fiveSeconds:
+            return "5 sec"
+        case .tenSeconds:
+            return "10 sec"
+        case .fifteenSeconds:
+            return "15 sec"
+        case .thirtySeconds:
+            return "30 sec"
+        case .oneMinute:
+            return "1 min"
+        case .twoMinutes:
+            return "2 min"
+        case .fiveMinutes:
+            return "5 min"
+        }
+    }
+
+    var settingsDescription: String {
+        switch self {
+        case .fiveSeconds:
+            return "Fastest updates with the highest API usage."
+        case .tenSeconds:
+            return "Very quick updates with high API usage."
+        case .fifteenSeconds:
+            return "Fastest updates, more API requests."
+        case .thirtySeconds:
+            return "Quick updates with moderate API usage."
+        case .oneMinute:
+            return "Balanced for most workflows."
+        case .twoMinutes:
+            return "Fewer checks, lower GitHub usage."
+        case .fiveMinutes:
+            return "Lightest polling for long-running projects."
+        }
+    }
+
+    var menuSubtitle: String {
+        "Checks every \(shortLabel)"
+    }
+}
+
 enum DeployStatus: String, CaseIterable, Equatable, Sendable {
     case running
     case failed
@@ -332,12 +394,8 @@ struct DeployState: Identifiable, Equatable, Sendable {
         completedAt ?? startedAt
     }
 
-    var detailsLinkTitle: String {
-        guard let runURL else {
-            return "Open run"
-        }
-
-        return runURL.path.contains("/actions/workflows/") ? "Open workflow" : "Open run"
+    var isRunning: Bool {
+        status == .running
     }
 
     static func placeholder(for workflow: MonitoredWorkflow) -> DeployState {

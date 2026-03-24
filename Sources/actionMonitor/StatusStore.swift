@@ -33,6 +33,7 @@ final class StatusStore: ObservableObject {
     @Published private(set) var workflows: [MonitoredWorkflow]
     @Published private(set) var states: [DeployState]
     @Published private(set) var combinedStatus: DeployStatus
+    @Published private(set) var workflowRefreshInterval: WorkflowRefreshInterval
     @Published private(set) var isRefreshing = false
     @Published private(set) var isResetting = false
     @Published private(set) var bannerMessage: String?
@@ -116,6 +117,7 @@ final class StatusStore: ObservableObject {
         authState = .signedOut
         onboardingStep = nil
         didCompleteOnboarding = appSetupStore.loadDidCompleteOnboarding()
+        workflowRefreshInterval = appSetupStore.loadWorkflowRefreshInterval()
         gitHubSignInConfigurationMessage = authManager.configuration == nil
             ? GitHubOAuthAppConfiguration.missingConfigurationMessage
             : nil
@@ -241,6 +243,21 @@ final class StatusStore: ObservableObject {
                 self.refreshNow()
             }
         }
+    }
+
+    func setWorkflowRefreshInterval(_ interval: WorkflowRefreshInterval) {
+        guard workflowRefreshInterval != interval else {
+            return
+        }
+
+        workflowRefreshInterval = interval
+        appSetupStore.saveWorkflowRefreshInterval(interval)
+
+        if didStart {
+            beginRefreshLoop()
+        }
+
+        refreshNow()
     }
 
     func beginOnboarding() {
@@ -424,6 +441,7 @@ final class StatusStore: ObservableObject {
             do {
                 try self.workflowStore.resetWorkflows()
                 self.appSetupStore.resetDidCompleteOnboarding()
+                self.appSetupStore.resetWorkflowRefreshInterval()
                 try self.authManager.disconnect()
                 self.applySuccessfulResetState()
                 self.windowPresenter.dismissOnboarding()
@@ -962,9 +980,10 @@ final class StatusStore: ObservableObject {
 
     private func beginRefreshLoop() {
         refreshLoopTask?.cancel()
+        let refreshInterval = workflowRefreshInterval
         refreshLoopTask = Task { [weak self] in
             while let self, !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(60))
+                try? await Task.sleep(for: .seconds(refreshInterval.seconds))
                 guard !Task.isCancelled else {
                     break
                 }
@@ -1268,6 +1287,7 @@ final class StatusStore: ObservableObject {
         accessibleRepositories = []
         onboardingStep = nil
         didCompleteOnboarding = false
+        workflowRefreshInterval = .default
         hasPromptedForAuthFailure = false
         if didStart {
             beginRefreshLoop()
@@ -1287,6 +1307,7 @@ final class StatusStore: ObservableObject {
         workflowsVersion += 1
         replaceWorkflows(with: reloadedWorkflows)
         didCompleteOnboarding = appSetupStore.loadDidCompleteOnboarding()
+        workflowRefreshInterval = appSetupStore.loadWorkflowRefreshInterval()
         accessibleRepositories = []
         resetWorkflowDiscoveryState()
         isLoadingGitHubAccess = false

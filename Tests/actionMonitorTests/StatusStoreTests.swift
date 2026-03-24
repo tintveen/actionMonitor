@@ -90,6 +90,35 @@ final class StatusStoreTests: XCTestCase {
         XCTAssertEqual(setupStore.savedValues.last, true)
     }
 
+    func testInitialRefreshIntervalComesFromAppSetupStore() {
+        let store = StatusStore(
+            workflowStore: InMemoryMonitoredWorkflowStore(),
+            appSetupStore: TestAppSetupStore(
+                didCompleteOnboarding: false,
+                workflowRefreshInterval: .twoMinutes
+            ),
+            settingsPresenter: TestSettingsPresenter(),
+            authManager: TestGitHubAuthManager(configuration: configuredOAuth())
+        )
+
+        XCTAssertEqual(store.workflowRefreshInterval, .twoMinutes)
+    }
+
+    func testSetWorkflowRefreshIntervalPersistsSelection() {
+        let setupStore = TestAppSetupStore(didCompleteOnboarding: false)
+        let store = StatusStore(
+            workflowStore: InMemoryMonitoredWorkflowStore(),
+            appSetupStore: setupStore,
+            settingsPresenter: TestSettingsPresenter(),
+            authManager: TestGitHubAuthManager(configuration: configuredOAuth())
+        )
+
+        store.setWorkflowRefreshInterval(.fiveMinutes)
+
+        XCTAssertEqual(store.workflowRefreshInterval, .fiveMinutes)
+        XCTAssertEqual(setupStore.savedWorkflowRefreshIntervals, [.fiveMinutes])
+    }
+
     func testStartShowsReconnectMessageWhenPersistedSessionRequiresMigration() {
         let presenter = TestSettingsPresenter()
         let authManager = TestGitHubAuthManager(
@@ -847,11 +876,17 @@ private final class TestGitHubAuthManager: GitHubAuthManaging, @unchecked Sendab
 
 private final class TestAppSetupStore: AppSetupStore, @unchecked Sendable {
     private var didCompleteOnboarding: Bool
+    private var workflowRefreshInterval: WorkflowRefreshInterval
     private(set) var savedValues: [Bool] = []
+    private(set) var savedWorkflowRefreshIntervals: [WorkflowRefreshInterval] = []
     private(set) var resetCallCount = 0
 
-    init(didCompleteOnboarding: Bool) {
+    init(
+        didCompleteOnboarding: Bool,
+        workflowRefreshInterval: WorkflowRefreshInterval = .default
+    ) {
         self.didCompleteOnboarding = didCompleteOnboarding
+        self.workflowRefreshInterval = workflowRefreshInterval
     }
 
     func loadDidCompleteOnboarding() -> Bool {
@@ -866,6 +901,19 @@ private final class TestAppSetupStore: AppSetupStore, @unchecked Sendable {
     func resetDidCompleteOnboarding() {
         resetCallCount += 1
         didCompleteOnboarding = false
+    }
+
+    func loadWorkflowRefreshInterval() -> WorkflowRefreshInterval {
+        workflowRefreshInterval
+    }
+
+    func saveWorkflowRefreshInterval(_ interval: WorkflowRefreshInterval) {
+        savedWorkflowRefreshIntervals.append(interval)
+        workflowRefreshInterval = interval
+    }
+
+    func resetWorkflowRefreshInterval() {
+        workflowRefreshInterval = .default
     }
 }
 

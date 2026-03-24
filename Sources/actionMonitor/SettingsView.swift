@@ -20,6 +20,7 @@ struct SettingsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 workflowsSection
+                monitoringSection
                 authSection
                 dangerZoneSection
             }
@@ -173,6 +174,45 @@ struct SettingsView: View {
                         tint: .blue
                     )
                 }
+            }
+        }
+    }
+
+    private var monitoringSection: some View {
+        SettingsSectionCard {
+            VStack(alignment: .leading, spacing: 14) {
+                SettingsSectionHeader(
+                    title: "Monitoring",
+                    detail: store.workflowRefreshInterval.shortLabel
+                )
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("How often Action Monitor checks GitHub for workflow updates.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+
+                    Picker("Refresh frequency", selection: refreshIntervalBinding) {
+                        ForEach(WorkflowRefreshInterval.allCases) { interval in
+                            Text(interval.shortLabel)
+                                .tag(interval)
+                        }
+                    }
+                    .pickerStyle(.menu)
+
+                    Text(store.workflowRefreshInterval.settingsDescription)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(Color(nsColor: .windowBackgroundColor))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(Color(nsColor: .separatorColor).opacity(0.45), lineWidth: 1)
+                )
             }
         }
     }
@@ -522,6 +562,13 @@ struct SettingsView: View {
         case .signedInPersonalAccessToken:
             return "Token saved"
         }
+    }
+
+    private var refreshIntervalBinding: Binding<WorkflowRefreshInterval> {
+        Binding(
+            get: { store.workflowRefreshInterval },
+            set: { store.setWorkflowRefreshInterval($0) }
+        )
     }
 }
 

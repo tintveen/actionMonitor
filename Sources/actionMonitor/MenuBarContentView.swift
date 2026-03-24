@@ -31,14 +31,10 @@ struct MenuBarContentView: View {
     }
 
     private var monitoringMenuView: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Action Monitor")
                     .font(menuBarTitleFont)
-
-                Text(statusSubtitle)
-                    .font(menuBarBodyFont)
-                    .foregroundStyle(.secondary)
             }
 
             if let bannerMessage = store.bannerMessage {
@@ -49,41 +45,43 @@ struct MenuBarContentView: View {
                 BannerView(message: resetMessage)
             }
 
-            ForEach(store.states) { state in
-                SiteStatusCard(state: state, openURL: openURL)
+            VStack(spacing: 10) {
+                ForEach(store.states) { state in
+                    SiteStatusCard(state: state, openURL: openURL)
+                }
             }
 
-            Divider()
-
-            HStack(spacing: 10) {
-                Button("Refresh now") {
+            HStack(spacing: 8) {
+                Button("Refresh") {
                     store.refreshNow()
                 }
                 .keyboardShortcut("r")
                 .font(menuBarBodyFont)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
 
-                Button {
+                Spacer(minLength: 0)
+
+                Button("Settings") {
                     showSettingsWindow()
-                } label: {
-                    Label("Settings", systemImage: "gearshape.fill")
                 }
                 .font(menuBarBodyFont)
-            }
-
-            HStack {
-                Spacer(minLength: 0)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
 
                 Button("Quit") {
                     NSApplication.shared.terminate(nil)
                 }
                 .font(menuBarBodyFont)
                 .buttonStyle(.bordered)
+                .controlSize(.small)
             }
 
             if let credentialMessage = store.credentialMessage {
                 Text(credentialMessage)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -183,14 +181,6 @@ struct MenuBarContentView: View {
             .font(menuBarBodyFont)
             .buttonStyle(.bordered)
         }
-    }
-
-    private var statusSubtitle: String {
-        if store.workflows.isEmpty {
-            return "Add a workflow to start monitoring GitHub Actions"
-        }
-
-        return store.isRefreshing ? "Refreshing GitHub Actions…" : "Watching your deploy workflows"
     }
 
     private var connectionStatus: (text: String, iconName: String, tintColor: Color)? {
@@ -335,40 +325,84 @@ private struct MenuBarConnectionStatusView: View {
     }
 }
 
+private struct MenuBarMetaCapsule: View {
+    let iconName: String
+    let text: String
+    var tintColor: Color = .secondary
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: iconName)
+                .font(.system(size: 10, weight: .semibold))
+
+            Text(text)
+                .lineLimit(1)
+        }
+        .font(.caption.weight(.medium))
+        .foregroundStyle(tintColor)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 6)
+        .background(
+            Capsule(style: .continuous)
+                .fill(Color.white.opacity(0.045))
+        )
+        .overlay(
+            Capsule(style: .continuous)
+                .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
+        )
+    }
+}
+
 private struct SiteStatusCard: View {
     let state: DeployState
     let openURL: OpenURLAction
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .center, spacing: 10) {
-                Image(systemName: state.status.symbolName)
-                    .foregroundStyle(state.status.color)
-                    .font(.system(size: 20, weight: .semibold))
+        if let runURL = state.runURL {
+            Button {
+                openURL(runURL)
+            } label: {
+                cardContent
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Open run for \(state.workflow.displayName)")
+        } else {
+            cardContent
+        }
+    }
 
-                VStack(alignment: .leading, spacing: 2) {
+    private var cardContent: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                ZStack {
+                    Circle()
+                        .fill(state.status.color.opacity(0.14))
+
+                    Image(systemName: state.status.symbolName)
+                        .foregroundStyle(state.status.color)
+                        .font(.system(size: 14, weight: .semibold))
+                }
+                .frame(width: 28, height: 28)
+
+                VStack(alignment: .leading, spacing: 3) {
                     Text(state.workflow.displayName)
-                        .font(.system(size: 13, weight: .semibold, design: .default))
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
 
                     Text(state.statusText)
-                        .font(.subheadline)
+                        .font(.footnote.weight(.medium))
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 Spacer()
             }
 
-            HStack(spacing: 12) {
-                if let relativeTimestamp = relativeTimestampText {
-                    Label(relativeTimestamp, systemImage: "clock")
-                }
-
+            HStack(spacing: 8) {
+                metadataPills
                 if let shortCommitSHA = state.shortCommitSHA {
-                    Label(shortCommitSHA, systemImage: "number")
+                    MenuBarMetaCapsule(iconName: "number", text: shortCommitSHA)
                 }
             }
-            .font(.footnote)
-            .foregroundStyle(.secondary)
 
             if let errorMessage = state.errorMessage {
                 Text(errorMessage)
@@ -376,32 +410,33 @@ private struct SiteStatusCard: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-
-            HStack(spacing: 10) {
-                if let siteURL = state.workflow.siteURL {
-                    Button("Open site") {
-                        openURL(siteURL)
-                    }
-                }
-
-                if let runURL = state.runURL {
-                    Button(state.detailsLinkTitle) {
-                        openURL(runURL)
-                    }
-                }
-            }
-            .buttonStyle(.link)
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor))
+                .fill(Color.white.opacity(0.03))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1)
+                .strokeBorder(Color.white.opacity(0.07), lineWidth: 1)
         )
+    }
+
+    @ViewBuilder
+    private var metadataPills: some View {
+        if state.isRunning, let startedAt = state.startedAt {
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                MenuBarMetaCapsule(
+                    iconName: "timer",
+                    text: elapsedDurationText(since: startedAt, now: context.date),
+                    tintColor: .orange
+                )
+            }
+        } else if let relativeTimestamp = relativeTimestampText {
+            MenuBarMetaCapsule(iconName: "clock", text: relativeTimestamp)
+        }
     }
 
     private var relativeTimestampText: String? {
@@ -412,12 +447,26 @@ private struct SiteStatusCard: View {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .short
 
-        switch state.status {
-        case .running:
-            return "Started \(formatter.localizedString(for: timestamp, relativeTo: .now))"
-        case .success, .failed, .unknown:
-            return "Updated \(formatter.localizedString(for: timestamp, relativeTo: .now))"
+        let value = formatter.localizedString(for: timestamp, relativeTo: .now)
+        if value.hasPrefix("in ") {
+            return value
         }
+
+        return value
+    }
+
+    private func elapsedDurationText(since startedAt: Date, now: Date) -> String {
+        let interval = max(0, now.timeIntervalSince(startedAt))
+        let totalSeconds = Int(interval.rounded(.down))
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
+        let seconds = totalSeconds % 60
+
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+        }
+
+        return String(format: "%02d:%02d", minutes, seconds)
     }
 }
 
