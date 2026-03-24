@@ -40,12 +40,12 @@ final class StatusStore: ObservableObject {
     @Published private(set) var workflowConfigurationMessage: String?
     @Published private(set) var gitHubSignInConfigurationMessage: String?
     @Published private(set) var onboardingStep: OnboardingStep?
-    @Published private(set) var installations: [GitHubInstallationSummary]
     @Published private(set) var accessibleRepositories: [GitHubAccessibleRepositorySummary]
     @Published private(set) var isLoadingGitHubAccess = false
     @Published private(set) var discoveredWorkflowSuggestions: [DiscoveredWorkflowSuggestion]
     @Published private(set) var isDiscoveringWorkflows = false
     @Published private(set) var workflowDiscoveryMessage: String?
+    @Published private(set) var workflowDiscoveryHelpTitle: String?
 
     private let workflowStore: any MonitoredWorkflowStore
     private let client: any GitHubDataFetching
@@ -56,7 +56,7 @@ final class StatusStore: ObservableObject {
     private let showsMissingCredentialBanner: Bool
     private let allowsPersonalAccessTokenFallback: Bool
 
-    private var currentSession: GitHubAppSession?
+    private var currentSession: GitHubOAuthSession?
     private var didCompleteOnboarding: Bool
     private var refreshLoopTask: Task<Void, Never>?
     private var refreshTask: Task<Void, Never>?
@@ -68,6 +68,7 @@ final class StatusStore: ObservableObject {
     private var pendingRefresh = false
     private var workflowsVersion = 0
     private var sessionIdentity: EffectiveGitHubSessionIdentity?
+    private var workflowDiscoveryHelpURL: URL?
 
     init(
         workflows initialWorkflows: [MonitoredWorkflow]? = nil,
@@ -88,7 +89,6 @@ final class StatusStore: ObservableObject {
         self.promptsForIncompleteSetup = promptsForIncompleteSetup
         self.showsMissingCredentialBanner = showsMissingCredentialBanner
         self.allowsPersonalAccessTokenFallback = allowsPersonalAccessTokenFallback
-        installations = []
         accessibleRepositories = []
         discoveredWorkflowSuggestions = []
 
@@ -114,20 +114,10 @@ final class StatusStore: ObservableObject {
         onboardingStep = nil
         didCompleteOnboarding = appSetupStore.loadDidCompleteOnboarding()
         gitHubSignInConfigurationMessage = authManager.configuration == nil
-            ? GitHubAppConfiguration.missingConfigurationMessage
+            ? GitHubOAuthAppConfiguration.missingConfigurationMessage
             : nil
 
-        do {
-            let session = try authManager.loadPersistedSession()
-            synchronizeSession(session, successMessage: nil)
-        } catch {
-            currentSession = nil
-            authState = .authError(error.localizedDescription)
-            credentialMessage = error.localizedDescription
-        }
-
         if !didCompleteOnboarding,
-           currentSession != nil,
            !loadedWorkflows.isEmpty {
             didCompleteOnboarding = true
             appSetupStore.saveDidCompleteOnboarding(true)
@@ -171,12 +161,8 @@ final class StatusStore: ObservableObject {
         Set(currentSession?.selectedRepositoryIDs ?? [])
     }
 
-    var selectedInstallationIDs: Set<Int64> {
-        Set(currentSession?.selectedInstallationIDs ?? [])
-    }
-
     var supportsRepositorySelection: Bool {
-        currentSession?.source == .githubAppBrowser
+        currentSession?.source == .oauthBrowser
     }
 
     var selectedAccessibleRepositories: [GitHubAccessibleRepositorySummary] {
@@ -211,10 +197,6 @@ final class StatusStore: ObservableObject {
         didStart = true
         refreshNow()
         beginRefreshLoop()
-
-        if supportsRepositorySelection {
-            reloadGitHubAccess()
-        }
 
         if promptsForIncompleteSetup && !didCompleteOnboarding {
             showOnboardingIfNeeded()
@@ -314,7 +296,7 @@ final class StatusStore: ObservableObject {
         }
 
         guard gitHubSignInIsAvailable else {
-            credentialMessage = gitHubSignInConfigurationMessage ?? GitHubAppConfiguration.missingConfigurationMessage
+            credentialMessage = gitHubSignInConfigurationMessage ?? GitHubOAuthAppConfiguration.missingConfigurationMessage
             return
         }
 
@@ -384,7 +366,7 @@ final class StatusStore: ObservableObject {
             if trimmedToken.isEmpty {
                 try clearSavedSession(message: "Saved GitHub session removed.")
             } else {
-                let session = GitHubAppSession(
+                let session = GitHubOAuthSession(
                     accessToken: trimmedToken,
                     source: .personalAccessToken
                 )
@@ -416,13 +398,6 @@ final class StatusStore: ObservableObject {
     }
 
     func reloadGitHubAccess() {
-        guard supportsRepositorySelection else {
-            installations = []
-            accessibleRepositories = []
-            resetWorkflowDiscoveryState()
-            return
-        }
-
         accessDirectoryTask?.cancel()
         accessDirectoryTask = Task { [weak self] in
             guard let self else {
@@ -434,36 +409,32 @@ final class StatusStore: ObservableObject {
                 self.isLoadingGitHubAccess = false
             }
 
+            guard let session = await self.ensureSessionLoadedForUserTriggeredGitHubAction() else {
+                self.accessibleRepositories = []
+                self.resetWorkflowDiscoveryState()
+                return
+            }
+
+            guard session.source == .oauthBrowser else {
+                self.accessibleRepositories = []
+                self.resetWorkflowDiscoveryState()
+                return
+            }
+
             do {
-                guard let session = try await self.authManager.validSession() else {
-                    self.installations = []
-                    self.accessibleRepositories = []
-                    return
-                }
+                _ = try await self.client.fetchViewer(accessToken: session.accessToken)
+                let repositories = try await self.client.fetchAccessibleRepositories(accessToken: session.accessToken)
+                    .sorted { $0.fullName.localizedCaseInsensitiveCompare($1.fullName) == .orderedAscending }
 
-                self.synchronizeSession(session, successMessage: nil)
-
-                let installations = try await self.client.fetchInstallations(accessToken: session.accessToken)
-                    .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
-
-                var repositories: [GitHubAccessibleRepositorySummary] = []
-                for installation in installations {
-                    let installationRepositories = try await self.client.fetchRepositories(
-                        for: installation.id,
-                        accessToken: session.accessToken
-                    )
-                    repositories.append(contentsOf: installationRepositories)
-                }
-
-                repositories.sort { $0.fullName.localizedCaseInsensitiveCompare($1.fullName) == .orderedAscending }
-
-                self.installations = installations
                 self.accessibleRepositories = repositories
                 try self.normalizeRepositorySelection()
                 if self.onboardingStep == .firstWorkflow {
                     self.discoverWorkflows()
                 }
             } catch {
+                if self.shouldClearSession(for: error) {
+                    self.handleInvalidSession(errorMessage: error.localizedDescription)
+                }
                 self.credentialMessage = error.localizedDescription
             }
         }
@@ -525,38 +496,49 @@ final class StatusStore: ObservableObject {
 
     func discoverWorkflows() {
         workflowDiscoveryTask?.cancel()
-
-        guard supportsRepositorySelection else {
-            discoveredWorkflowSuggestions = []
-            workflowDiscoveryMessage = "Workflow discovery is available after GitHub browser sign-in."
-            isDiscoveringWorkflows = false
-            return
-        }
-
-        guard let session = currentSession else {
-            discoveredWorkflowSuggestions = []
-            workflowDiscoveryMessage = "Connect GitHub to discover workflows."
-            isDiscoveringWorkflows = false
-            return
-        }
-
-        let repositories = selectedAccessibleRepositories
-            .sorted { $0.fullName.localizedCaseInsensitiveCompare($1.fullName) == .orderedAscending }
-
-        guard !repositories.isEmpty else {
-            discoveredWorkflowSuggestions = []
-            workflowDiscoveryMessage = nil
-            isDiscoveringWorkflows = false
-            return
-        }
-
-        workflowDiscoveryMessage = nil
         isDiscoveringWorkflows = true
 
         workflowDiscoveryTask = Task { [weak self] in
             guard let self else {
                 return
             }
+
+            guard let session = await self.ensureSessionLoadedForUserTriggeredGitHubAction() else {
+                self.discoveredWorkflowSuggestions = []
+                self.workflowDiscoveryMessage = "Connect GitHub to discover workflows."
+                self.workflowDiscoveryHelpTitle = nil
+                self.workflowDiscoveryHelpURL = nil
+                self.isDiscoveringWorkflows = false
+                self.workflowDiscoveryTask = nil
+                return
+            }
+
+            guard session.source == .oauthBrowser else {
+                self.discoveredWorkflowSuggestions = []
+                self.workflowDiscoveryMessage = "Workflow discovery is available after GitHub browser sign-in."
+                self.workflowDiscoveryHelpTitle = nil
+                self.workflowDiscoveryHelpURL = nil
+                self.isDiscoveringWorkflows = false
+                self.workflowDiscoveryTask = nil
+                return
+            }
+
+            let repositories = self.selectedAccessibleRepositories
+                .sorted { $0.fullName.localizedCaseInsensitiveCompare($1.fullName) == .orderedAscending }
+
+            guard !repositories.isEmpty else {
+                self.discoveredWorkflowSuggestions = []
+                self.workflowDiscoveryMessage = nil
+                self.workflowDiscoveryHelpTitle = nil
+                self.workflowDiscoveryHelpURL = nil
+                self.isDiscoveringWorkflows = false
+                self.workflowDiscoveryTask = nil
+                return
+            }
+
+            self.workflowDiscoveryMessage = nil
+            self.workflowDiscoveryHelpTitle = nil
+            self.workflowDiscoveryHelpURL = nil
 
             let scanResults = await self.scanWorkflows(
                 in: repositories,
@@ -571,10 +553,19 @@ final class StatusStore: ObservableObject {
             let suggestions = self.buildDiscoveredWorkflowSuggestions(from: scanResults)
             self.discoveredWorkflowSuggestions = suggestions
 
-            if failedScanCount > 0 {
+            let blockedAccess = self.blockedAccessSupport(from: scanResults)
+            if let blockedAccess {
+                self.workflowDiscoveryMessage = blockedAccess.message
+                self.workflowDiscoveryHelpTitle = blockedAccess.helpTitle
+                self.workflowDiscoveryHelpURL = blockedAccess.helpURL
+            } else if failedScanCount > 0 {
                 self.workflowDiscoveryMessage = "Scanned \(repositories.count) repos, \(failedScanCount) failed."
+                self.workflowDiscoveryHelpTitle = nil
+                self.workflowDiscoveryHelpURL = nil
             } else {
                 self.workflowDiscoveryMessage = nil
+                self.workflowDiscoveryHelpTitle = nil
+                self.workflowDiscoveryHelpURL = nil
             }
 
             self.isDiscoveringWorkflows = false
@@ -627,6 +618,49 @@ final class StatusStore: ObservableObject {
 
     func showSettingsDirectly() {
         windowPresenter.showSettingsDirectly()
+        Task { [weak self] in
+            guard let self else {
+                return
+            }
+
+            guard let session = await self.ensureSessionLoadedForUserTriggeredGitHubAction() else {
+                return
+            }
+
+            if session.source == .oauthBrowser {
+                self.reloadGitHubAccess()
+            }
+        }
+    }
+
+    func showSettings() {
+        windowPresenter.showSettings()
+
+        guard !shouldRouteSettingsToOnboarding else {
+            return
+        }
+
+        Task { [weak self] in
+            guard let self else {
+                return
+            }
+
+            guard let session = await self.ensureSessionLoadedForUserTriggeredGitHubAction() else {
+                return
+            }
+
+            if session.source == .oauthBrowser {
+                self.reloadGitHubAccess()
+            }
+        }
+    }
+
+    func openWorkflowDiscoveryHelp() {
+        guard let helpURL = workflowDiscoveryHelpURL else {
+            return
+        }
+
+        windowPresenter.openExternalURL(helpURL)
     }
 
     func deleteWorkflow(id: UUID) throws {
@@ -783,6 +817,41 @@ final class StatusStore: ObservableObject {
         }
     }
 
+    private func blockedAccessSupport(
+        from scanResults: [WorkflowRepositoryScanResult]
+    ) -> WorkflowDiscoveryBlockedAccessSupport? {
+        guard let blockedResult = scanResults.first(where: { result in
+            guard let errorMessage = result.errorMessage?.lowercased() else {
+                return false
+            }
+
+            return errorMessage.contains("saml") ||
+                errorMessage.contains("sso") ||
+                errorMessage.contains("oauth app access restrictions") ||
+                errorMessage.contains("third-party application access policy")
+        }) else {
+            return nil
+        }
+
+        let errorMessage = blockedResult.errorMessage?.lowercased() ?? ""
+        if errorMessage.contains("saml") || errorMessage.contains("sso") {
+            let helpURL = blockedResult.repository.ownerType == "Organization"
+                ? URL(string: "https://github.com/orgs/\(blockedResult.repository.ownerLogin)/sso")
+                : nil
+            return WorkflowDiscoveryBlockedAccessSupport(
+                message: "Connected to GitHub, but \(blockedResult.repository.fullName) needs an active SSO session before workflows can be loaded.",
+                helpTitle: helpURL == nil ? nil : "Open Org SSO",
+                helpURL: helpURL
+            )
+        }
+
+        return WorkflowDiscoveryBlockedAccessSupport(
+            message: "Connected to GitHub, but \(blockedResult.repository.fullName) is blocked by the organization's OAuth app approval policy. An organization owner may need to approve the app first.",
+            helpTitle: nil,
+            helpURL: nil
+        )
+    }
+
     private func reconcileDiscoveredWorkflowSuggestions() {
         guard !discoveredWorkflowSuggestions.isEmpty else {
             return
@@ -811,6 +880,8 @@ final class StatusStore: ObservableObject {
         isDiscoveringWorkflows = false
         discoveredWorkflowSuggestions = []
         workflowDiscoveryMessage = nil
+        workflowDiscoveryHelpTitle = nil
+        workflowDiscoveryHelpURL = nil
     }
 
     private func beginRefreshLoop() {
@@ -879,14 +950,6 @@ final class StatusStore: ObservableObject {
         isRefreshing = true
         defer {
             isRefreshing = false
-        }
-
-        do {
-            if let session = try await authManager.validSession() {
-                synchronizeSession(session, successMessage: nil)
-            }
-        } catch {
-            credentialMessage = error.localizedDescription
         }
 
         let currentToken = currentSession?.accessToken.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -961,22 +1024,13 @@ final class StatusStore: ObservableObject {
         do {
             return try await client.fetchLatestRun(for: workflow, token: accessToken)
         } catch GitHubClientError.unauthorized {
-            guard currentSession?.source == .githubAppBrowser,
-                  let refreshedSession = try await authManager.forceRefreshSession() else {
-                throw GitHubClientError.unauthorized
-            }
-
-            synchronizeSession(refreshedSession, successMessage: nil)
-            return try await client.fetchLatestRun(
-                for: workflow,
-                token: refreshedSession.accessToken
-            )
+            handleInvalidSession(errorMessage: GitHubClientError.unauthorized.localizedDescription)
+            throw GitHubClientError.unauthorized
         }
     }
 
     private func normalizeRepositorySelection() throws {
         let availableRepositoryIDs = Set(accessibleRepositories.map(\.id))
-        let availableInstallationIDs = Set(accessibleRepositories.map(\.installationID))
         let existingSelectedRepositoryIDs = selectedRepositoryIDs.intersection(availableRepositoryIDs)
         let nextSelectedRepositoryIDs: Set<Int64>
 
@@ -986,36 +1040,17 @@ final class StatusStore: ObservableObject {
             nextSelectedRepositoryIDs = existingSelectedRepositoryIDs
         }
 
-        let nextSelectedInstallationIDs = Set(
-            accessibleRepositories
-                .filter { nextSelectedRepositoryIDs.contains($0.id) }
-                .map(\.installationID)
-        ).intersection(availableInstallationIDs)
-
-        guard nextSelectedRepositoryIDs != selectedRepositoryIDs ||
-              nextSelectedInstallationIDs != selectedInstallationIDs else {
+        guard nextSelectedRepositoryIDs != selectedRepositoryIDs else {
             return
         }
 
-        try updateRepositorySelection(
-            installationIDs: nextSelectedInstallationIDs,
-            repositoryIDs: nextSelectedRepositoryIDs
-        )
+        try updateRepositorySelection(repositoryIDs: nextSelectedRepositoryIDs)
     }
 
     private func persistRepositorySelection(_ repositoryIDs: Set<Int64>) {
-        let installationIDs = Set(
-            accessibleRepositories
-                .filter { repositoryIDs.contains($0.id) }
-                .map(\.installationID)
-        )
-
         do {
             let previousRepositoryIDs = selectedRepositoryIDs
-            try updateRepositorySelection(
-                installationIDs: installationIDs,
-                repositoryIDs: repositoryIDs
-            )
+            try updateRepositorySelection(repositoryIDs: repositoryIDs)
             if previousRepositoryIDs != repositoryIDs {
                 resetWorkflowDiscoveryState()
             }
@@ -1026,17 +1061,13 @@ final class StatusStore: ObservableObject {
     }
 
     private func updateRepositorySelection(
-        installationIDs: Set<Int64>,
         repositoryIDs: Set<Int64>
     ) throws {
-        let updatedSession = try authManager.updateSelections(
-            installationIDs: Array(installationIDs).sorted(),
-            repositoryIDs: Array(repositoryIDs).sorted()
-        )
+        let updatedSession = try authManager.updateSelections(repositoryIDs: Array(repositoryIDs).sorted())
         synchronizeSession(updatedSession, successMessage: nil)
     }
 
-private func isWorkflowSelectedForMonitoring(_ workflow: MonitoredWorkflow) -> Bool {
+    private func isWorkflowSelectedForMonitoring(_ workflow: MonitoredWorkflow) -> Bool {
         guard !selectedRepositoryIDs.isEmpty else {
             return true
         }
@@ -1049,7 +1080,7 @@ private func isWorkflowSelectedForMonitoring(_ workflow: MonitoredWorkflow) -> B
     }
 
     private func synchronizeSession(
-        _ session: GitHubAppSession?,
+        _ session: GitHubOAuthSession?,
         successMessage: String?
     ) {
         let nextSessionIdentity = session.map { EffectiveGitHubSessionIdentity(session: $0) }
@@ -1065,9 +1096,37 @@ private func isWorkflowSelectedForMonitoring(_ workflow: MonitoredWorkflow) -> B
         }
 
         if !supportsRepositorySelection {
-            installations = []
             accessibleRepositories = []
             resetWorkflowDiscoveryState()
+        }
+    }
+
+    @discardableResult
+    private func ensureSessionLoadedForUserTriggeredGitHubAction() async -> GitHubOAuthSession? {
+        if let currentSession {
+            return currentSession
+        }
+
+        do {
+            let session = try await authManager.ensureSessionLoaded()
+            synchronizeSession(session, successMessage: nil)
+            return session
+        } catch CredentialStoreError.migrationRequired {
+            currentSession = nil
+            sessionIdentity = nil
+            authState = .signedOut
+            credentialMessage = CredentialStoreError.migrationRequired.localizedDescription
+            accessibleRepositories = []
+            resetWorkflowDiscoveryState()
+            return nil
+        } catch {
+            currentSession = nil
+            sessionIdentity = nil
+            authState = .authError(error.localizedDescription)
+            credentialMessage = error.localizedDescription
+            accessibleRepositories = []
+            resetWorkflowDiscoveryState()
+            return nil
         }
     }
 
@@ -1077,7 +1136,6 @@ private func isWorkflowSelectedForMonitoring(_ workflow: MonitoredWorkflow) -> B
         sessionIdentity = nil
         authState = .signedOut
         credentialMessage = message
-        installations = []
         accessibleRepositories = []
         resetWorkflowDiscoveryState()
     }
@@ -1103,7 +1161,7 @@ private func isWorkflowSelectedForMonitoring(_ workflow: MonitoredWorkflow) -> B
     }
 
     private func showOnboardingIfNeeded() {
-        let step = suggestedOnboardingStep()
+        let step = startupOnboardingStep()
         onboardingStep = step
         windowPresenter.showOnboarding(startingAt: step)
     }
@@ -1141,14 +1199,63 @@ private func isWorkflowSelectedForMonitoring(_ workflow: MonitoredWorkflow) -> B
         return .finish
     }
 
-    private static func authState(for session: GitHubAppSession?) -> GitHubAuthState {
+    private func startupOnboardingStep() -> OnboardingStep {
+        if !didCompleteOnboarding && currentSession == nil {
+            return .githubSignIn
+        }
+
+        return suggestedOnboardingStep()
+    }
+
+}
+
+private extension StatusStore {
+    func shouldClearSession(for error: Error) -> Bool {
+        guard let error = error as? GitHubClientError else {
+            return false
+        }
+
+        switch error {
+        case .unauthorized:
+            return true
+        case .unexpectedStatus(_, let message):
+            let normalizedMessage = message?.lowercased() ?? ""
+            return normalizedMessage.contains("bad credentials") ||
+                normalizedMessage.contains("expired") ||
+                normalizedMessage.contains("revoked") ||
+                normalizedMessage.contains("invalid token")
+        case .invalidResponse, .rateLimited, .decodingFailed, .network:
+            return false
+        }
+    }
+
+    func handleInvalidSession(errorMessage: String) {
+        do {
+            try authManager.disconnect()
+        } catch {
+            credentialMessage = error.localizedDescription
+        }
+
+        currentSession = nil
+        sessionIdentity = nil
+        authState = .authError(errorMessage)
+        accessibleRepositories = []
+        resetWorkflowDiscoveryState()
+        bannerMessage = errorMessage
+        hasPromptedForAuthFailure = false
+        promptForAuthFailureIfNeeded()
+    }
+}
+
+private extension StatusStore {
+    static func authState(for session: GitHubOAuthSession?) -> GitHubAuthState {
         guard let session else {
             return .signedOut
         }
 
         switch session.source {
-        case .githubAppBrowser:
-            return .signedInGitHubApp(session.summary)
+        case .oauthBrowser:
+            return .signedInOAuthApp(session.summary)
         case .personalAccessToken:
             return .signedInPersonalAccessToken(session.summary)
         }
@@ -1165,12 +1272,18 @@ private struct WorkflowRepositoryScanResult: Sendable {
     }
 }
 
+private struct WorkflowDiscoveryBlockedAccessSupport {
+    let message: String
+    let helpTitle: String?
+    let helpURL: URL?
+}
+
 private struct EffectiveGitHubSessionIdentity: Equatable {
     let source: GitHubSessionSource
     let userID: Int64?
     let login: String?
 
-    init(session: GitHubAppSession) {
+    init(session: GitHubOAuthSession) {
         source = session.source
         userID = session.userID
         login = session.login?.trimmedWorkflowValue

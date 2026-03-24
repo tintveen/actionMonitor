@@ -1,56 +1,45 @@
 import Foundation
 
 enum GitHubSessionSource: String, Codable, Equatable, Sendable {
-    case githubAppBrowser
+    case oauthBrowser
     case personalAccessToken
 
     var displayName: String {
         switch self {
-        case .githubAppBrowser:
-            return "GitHub App browser sign-in"
+        case .oauthBrowser:
+            return "GitHub browser sign-in"
         case .personalAccessToken:
             return "Personal access token"
         }
     }
 }
 
-struct GitHubAppSession: Codable, Equatable, Sendable {
+struct GitHubOAuthSession: Codable, Equatable, Sendable {
     let accessToken: String
-    let accessTokenExpiresAt: Date?
-    let refreshToken: String?
-    let refreshTokenExpiresAt: Date?
     let userID: Int64?
     let login: String?
     let source: GitHubSessionSource
+    let grantedScopes: [String]
     let savedAt: Date
-    let selectedInstallationIDs: [Int64]
     let selectedRepositoryIDs: [Int64]
 
     init(
         accessToken: String,
-        accessTokenExpiresAt: Date? = nil,
-        refreshToken: String? = nil,
-        refreshTokenExpiresAt: Date? = nil,
         userID: Int64? = nil,
         login: String? = nil,
         source: GitHubSessionSource,
+        grantedScopes: [String] = [],
         savedAt: Date = Date(),
-        selectedInstallationIDs: [Int64] = [],
         selectedRepositoryIDs: [Int64] = []
     ) {
         self.accessToken = accessToken.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.accessTokenExpiresAt = accessTokenExpiresAt
-
-        let trimmedRefreshToken = refreshToken?.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.refreshToken = trimmedRefreshToken?.isEmpty == true ? nil : trimmedRefreshToken
-        self.refreshTokenExpiresAt = refreshTokenExpiresAt
         self.userID = userID
 
         let trimmedLogin = login?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.login = trimmedLogin?.isEmpty == true ? nil : trimmedLogin
         self.source = source
+        self.grantedScopes = Self.normalizedScopes(grantedScopes)
         self.savedAt = savedAt
-        self.selectedInstallationIDs = Self.normalizedIDs(selectedInstallationIDs)
         self.selectedRepositoryIDs = Self.normalizedIDs(selectedRepositoryIDs)
     }
 
@@ -59,58 +48,23 @@ struct GitHubAppSession: Codable, Equatable, Sendable {
             source: source,
             userID: userID,
             login: login,
-            accessTokenExpiresAt: accessTokenExpiresAt,
-            refreshTokenExpiresAt: refreshTokenExpiresAt,
+            grantedScopes: grantedScopes,
             savedAt: savedAt,
-            selectedInstallationCount: selectedInstallationIDs.count,
             selectedRepositoryCount: selectedRepositoryIDs.count
         )
     }
 
-    var canRefresh: Bool {
-        guard let refreshToken, !refreshToken.isEmpty else {
-            return false
-        }
-
-        return refreshTokenExpiresAt.map { $0 > Date() } ?? true
-    }
-
-    func updatingTokens(
-        accessToken: String,
-        accessTokenExpiresAt: Date?,
-        refreshToken: String?,
-        refreshTokenExpiresAt: Date?,
-        savedAt: Date
-    ) -> GitHubAppSession {
-        GitHubAppSession(
-            accessToken: accessToken,
-            accessTokenExpiresAt: accessTokenExpiresAt,
-            refreshToken: refreshToken,
-            refreshTokenExpiresAt: refreshTokenExpiresAt,
-            userID: userID,
-            login: login,
-            source: source,
-            savedAt: savedAt,
-            selectedInstallationIDs: selectedInstallationIDs,
-            selectedRepositoryIDs: selectedRepositoryIDs
-        )
-    }
-
     func updatingSelections(
-        installationIDs: [Int64],
         repositoryIDs: [Int64],
         savedAt: Date = Date()
-    ) -> GitHubAppSession {
-        GitHubAppSession(
+    ) -> GitHubOAuthSession {
+        GitHubOAuthSession(
             accessToken: accessToken,
-            accessTokenExpiresAt: accessTokenExpiresAt,
-            refreshToken: refreshToken,
-            refreshTokenExpiresAt: refreshTokenExpiresAt,
             userID: userID,
             login: login,
             source: source,
+            grantedScopes: grantedScopes,
             savedAt: savedAt,
-            selectedInstallationIDs: installationIDs,
             selectedRepositoryIDs: repositoryIDs
         )
     }
@@ -118,16 +72,25 @@ struct GitHubAppSession: Codable, Equatable, Sendable {
     private static func normalizedIDs(_ ids: [Int64]) -> [Int64] {
         Array(Set(ids)).sorted()
     }
+
+    private static func normalizedScopes(_ scopes: [String]) -> [String] {
+        Array(
+            Set(
+                scopes
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+                    .filter { !$0.isEmpty }
+            )
+        )
+        .sorted()
+    }
 }
 
 struct GitHubAuthSessionSummary: Equatable, Sendable {
     let source: GitHubSessionSource
     let userID: Int64?
     let login: String?
-    let accessTokenExpiresAt: Date?
-    let refreshTokenExpiresAt: Date?
+    let grantedScopes: [String]
     let savedAt: Date
-    let selectedInstallationCount: Int
     let selectedRepositoryCount: Int
 }
 
@@ -139,11 +102,9 @@ struct GitHubBrowserAuthorizationContext: Equatable, Sendable {
     let expiresAt: Date
 }
 
-struct GitHubAppAuthorizationResult: Equatable, Sendable {
+struct GitHubOAuthAuthorizationResult: Equatable, Sendable {
     let accessToken: String
-    let accessTokenExpiresAt: Date?
-    let refreshToken: String?
-    let refreshTokenExpiresAt: Date?
+    let grantedScopes: [String]
     let userID: Int64?
     let login: String?
 }
@@ -153,42 +114,26 @@ struct GitHubUserProfile: Codable, Equatable, Sendable {
     let login: String
 }
 
-struct GitHubInstallationSummary: Codable, Equatable, Identifiable, Sendable {
-    let id: Int64
-    let accountLogin: String
-    let accountType: String
-    let targetType: String
-    let repositorySelection: String
-
-    var displayName: String {
-        accountLogin
-    }
-}
-
 struct GitHubAccessibleRepositorySummary: Codable, Equatable, Identifiable, Sendable {
     let id: Int64
-    let installationID: Int64
     let ownerLogin: String
+    let ownerType: String
     let name: String
     let fullName: String
     let isPrivate: Bool
     let defaultBranch: String?
-
-    var ownerAndRepo: String {
-        fullName
-    }
 }
 
 enum GitHubAuthState: Equatable, Sendable {
     case signedOut
     case signingInBrowser(GitHubBrowserAuthorizationContext)
-    case signedInGitHubApp(GitHubAuthSessionSummary)
+    case signedInOAuthApp(GitHubAuthSessionSummary)
     case signedInPersonalAccessToken(GitHubAuthSessionSummary)
     case authError(String)
 
     var signedInSummary: GitHubAuthSessionSummary? {
         switch self {
-        case .signedInGitHubApp(let summary), .signedInPersonalAccessToken(let summary):
+        case .signedInOAuthApp(let summary), .signedInPersonalAccessToken(let summary):
             return summary
         case .signedOut, .signingInBrowser, .authError:
             return nil
@@ -203,14 +148,16 @@ enum OnboardingStep: String, Codable, CaseIterable, Equatable, Sendable {
     case finish
 }
 
-struct GitHubAppConfiguration: Equatable, Sendable {
-    static let clientIDInfoDictionaryKey = "GitHubAppClientID"
-    static let clientSecretInfoDictionaryKey = "GitHubAppClientSecret"
-    static let legacyClientIDInfoDictionaryKey = "GitHubOAuthClientID"
-    static let legacyClientSecretInfoDictionaryKey = "GitHubOAuthClientSecret"
+struct GitHubOAuthAppConfiguration: Equatable, Sendable {
+    static let clientIDInfoDictionaryKey = "GitHubOAuthAppClientID"
+    static let clientSecretInfoDictionaryKey = "GitHubOAuthAppClientSecret"
+    static let legacyClientIDInfoDictionaryKeys = ["GitHubOAuthClientID", "GitHubAppClientID"]
+    static let legacyClientSecretInfoDictionaryKeys = ["GitHubOAuthClientSecret", "GitHubAppClientSecret"]
+    static let environmentClientIDKeys = ["ACTIONMONITOR_GITHUB_OAUTH_APP_CLIENT_ID", "GITHUB_OAUTH_APP_CLIENT_ID"]
+    static let environmentClientSecretKeys = ["ACTIONMONITOR_GITHUB_OAUTH_APP_CLIENT_SECRET", "GITHUB_OAUTH_APP_CLIENT_SECRET"]
     static let callbackHost = "127.0.0.1"
     static let callbackPath = "/callback"
-    static let missingConfigurationMessage = "GitHub App sign-in is not configured for this build. Add GitHubAppClientID and GitHubAppClientSecret to Info.plist to enable it."
+    static let missingConfigurationMessage = "GitHub sign-in is not configured for this build. Add GitHubOAuthAppClientID and GitHubOAuthAppClientSecret to Info.plist to enable it. If you recently changed Support/Info.plist, do a clean rebuild so the embedded plist updates."
 
     let clientID: String
     let clientSecret: String
@@ -221,8 +168,8 @@ struct GitHubAppConfiguration: Equatable, Sendable {
     init?(
         clientID: String?,
         clientSecret: String?,
-        callbackHost: String = GitHubAppConfiguration.callbackHost,
-        callbackPath: String = GitHubAppConfiguration.callbackPath,
+        callbackHost: String = GitHubOAuthAppConfiguration.callbackHost,
+        callbackPath: String = GitHubOAuthAppConfiguration.callbackPath,
         callbackTimeout: TimeInterval = 300
     ) {
         let trimmedClientID = clientID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -247,14 +194,48 @@ struct GitHubAppConfiguration: Equatable, Sendable {
         from bundle: Bundle = .main,
         clientIDOverride: String? = nil,
         clientSecretOverride: String? = nil
-    ) -> GitHubAppConfiguration? {
-        let bundledClientID = bundle.object(forInfoDictionaryKey: clientIDInfoDictionaryKey) as? String
-        let bundledClientSecret = bundle.object(forInfoDictionaryKey: clientSecretInfoDictionaryKey) as? String
-        let legacyClientID = bundle.object(forInfoDictionaryKey: legacyClientIDInfoDictionaryKey) as? String
-        let legacyClientSecret = bundle.object(forInfoDictionaryKey: legacyClientSecretInfoDictionaryKey) as? String
+    ) -> GitHubOAuthAppConfiguration? {
+        let bundleInfoDictionary = bundle.infoDictionary ?? [:]
+        let sourceInfoDictionary = sourceInfoDictionaryFallback()
+        let environment = ProcessInfo.processInfo.environment
 
-        let resolvedClientID = clientIDOverride ?? bundledClientID ?? legacyClientID
-        let resolvedClientSecret = clientSecretOverride ?? bundledClientSecret ?? legacyClientSecret
+        let bundledClientID = firstNonEmptyValue(
+            for: [clientIDInfoDictionaryKey],
+            in: bundleInfoDictionary
+        )
+        let bundledClientSecret = firstNonEmptyValue(
+            for: [clientSecretInfoDictionaryKey],
+            in: bundleInfoDictionary
+        )
+        let legacyBundledClientID = firstNonEmptyValue(
+            for: legacyClientIDInfoDictionaryKeys,
+            in: bundleInfoDictionary
+        )
+        let legacyBundledClientSecret = firstNonEmptyValue(
+            for: legacyClientSecretInfoDictionaryKeys,
+            in: bundleInfoDictionary
+        )
+        let sourceClientID = firstNonEmptyValue(
+            for: [clientIDInfoDictionaryKey] + legacyClientIDInfoDictionaryKeys,
+            in: sourceInfoDictionary
+        )
+        let sourceClientSecret = firstNonEmptyValue(
+            for: [clientSecretInfoDictionaryKey] + legacyClientSecretInfoDictionaryKeys,
+            in: sourceInfoDictionary
+        )
+        let environmentClientID = firstNonEmptyEnvironmentValue(for: environmentClientIDKeys, in: environment)
+        let environmentClientSecret = firstNonEmptyEnvironmentValue(for: environmentClientSecretKeys, in: environment)
+
+        let resolvedClientID = clientIDOverride ??
+            bundledClientID ??
+            environmentClientID ??
+            sourceClientID ??
+            legacyBundledClientID
+        let resolvedClientSecret = clientSecretOverride ??
+            bundledClientSecret ??
+            environmentClientSecret ??
+            sourceClientSecret ??
+            legacyBundledClientSecret
 
         AuthDebugLogger.logConfigurationLoad(
             clientID: resolvedClientID,
@@ -263,7 +244,7 @@ struct GitHubAppConfiguration: Equatable, Sendable {
             bundleIdentifier: bundle.bundleIdentifier
         )
 
-        return GitHubAppConfiguration(
+        return GitHubOAuthAppConfiguration(
             clientID: resolvedClientID,
             clientSecret: resolvedClientSecret
         )
@@ -272,39 +253,53 @@ struct GitHubAppConfiguration: Equatable, Sendable {
     var callbackRegistrationURL: URL {
         URL(string: "http://\(callbackHost)\(callbackPath)")!
     }
+
+    private static func firstNonEmptyValue(
+        for keys: [String],
+        in dictionary: [String: Any]?
+    ) -> String? {
+        guard let dictionary else {
+            return nil
+        }
+
+        return keys.lazy
+            .compactMap { dictionary[$0] as? String }
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first(where: { !$0.isEmpty })
+    }
+
+    private static func firstNonEmptyEnvironmentValue(
+        for keys: [String],
+        in environment: [String: String]
+    ) -> String? {
+        keys.lazy
+            .compactMap { environment[$0] }
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first(where: { !$0.isEmpty })
+    }
+
+    private static func sourceInfoDictionaryFallback() -> [String: Any]? {
+        #if DEBUG
+        let sourceFileURL = URL(fileURLWithPath: #filePath)
+        let repositoryRootURL = sourceFileURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let plistURL = repositoryRootURL.appendingPathComponent("Support/Info.plist")
+        return NSDictionary(contentsOf: plistURL) as? [String: Any]
+        #else
+        return nil
+        #endif
+    }
 }
 
-typealias GitHubOAuthConfiguration = GitHubAppConfiguration
-typealias GitHubCredential = GitHubAppSession
+typealias GitHubOAuthConfiguration = GitHubOAuthAppConfiguration
+typealias GitHubCredential = GitHubOAuthSession
 typealias GitHubCredentialSource = GitHubSessionSource
 typealias GitHubAuthAccountSummary = GitHubAuthSessionSummary
 
-extension GitHubSessionSource {
-    static var oauthBrowser: GitHubSessionSource {
-        .githubAppBrowser
-    }
-}
-
-extension GitHubAppSession {
-    init(
-        accessToken: String,
-        source: GitHubSessionSource,
-        login: String?,
-        grantedScopes: [String],
-        savedAt: Date = Date()
-    ) {
-        self.init(
-            accessToken: accessToken,
-            userID: nil,
-            login: login,
-            source: source,
-            savedAt: savedAt
-        )
-    }
-}
-
 extension GitHubAuthState {
     static func signedInOAuth(_ summary: GitHubAuthSessionSummary) -> GitHubAuthState {
-        .signedInGitHubApp(summary)
+        .signedInOAuthApp(summary)
     }
 }

@@ -1,14 +1,15 @@
 import Foundation
 
 protocol CredentialStore: Sendable {
-    func loadSession() throws -> GitHubAppSession?
-    func saveSession(_ session: GitHubAppSession) throws
+    func loadSession() throws -> GitHubOAuthSession?
+    func saveSession(_ session: GitHubOAuthSession) throws
     func removeSession() throws
 }
 
 enum CredentialStoreError: LocalizedError {
     case unexpectedStatus(Int)
     case invalidData
+    case migrationRequired
     case unsupportedPlatform
     case disabledInDemoMode
 
@@ -18,6 +19,8 @@ enum CredentialStoreError: LocalizedError {
             return "Keychain access failed with status \(status)."
         case .invalidData:
             return "Keychain returned unreadable GitHub session data."
+        case .migrationRequired:
+            return "Your saved GitHub session came from the old GitHub App flow. Connect GitHub again."
         case .unsupportedPlatform:
             return "Saving GitHub sessions is only supported by the macOS menu bar app."
         case .disabledInDemoMode:
@@ -30,7 +33,8 @@ enum CredentialStoreError: LocalizedError {
 import Security
 
 struct KeychainCredentialStore: CredentialStore {
-    private let service = "actionMonitor.github.session"
+    private let service = "actionMonitor.github.oauth-session"
+    private let legacyService = "actionMonitor.github.session"
     private let account = "github.com"
     private static let encoder: JSONEncoder = {
         let encoder = JSONEncoder()
@@ -43,7 +47,82 @@ struct KeychainCredentialStore: CredentialStore {
         return decoder
     }()
 
-    func loadSession() throws -> GitHubAppSession? {
+    func loadSession() throws -> GitHubOAuthSession? {
+        if let data = try loadData(service: service) {
+            return try Self.decodeStoredSessionData(data)
+        }
+
+        if let legacyData = try loadData(service: legacyService) {
+            return try Self.decodeStoredSessionData(legacyData)
+        }
+
+        return nil
+    }
+
+    func saveSession(_ session: GitHubOAuthSession) throws {
+        let data = try Self.encodeSession(session)
+        try upsertData(data, service: service)
+    }
+
+    func removeSession() throws {
+        try removeData(service: service)
+        try removeData(service: legacyService)
+    }
+
+    static func decodeStoredSessionData(
+        _ data: Data,
+        legacySavedAt: Date = Date()
+    ) throws -> GitHubOAuthSession {
+        if let session = try? decoder.decode(GitHubOAuthSession.self, from: data) {
+            return session
+        }
+
+        if let legacySession = try? decoder.decode(LegacyGitHubAppSession.self, from: data),
+           legacySession.requiresReconnect {
+            throw CredentialStoreError.migrationRequired
+        }
+
+        if let credential = try? decoder.decode(LegacyGitHubCredential.self, from: data) {
+            return GitHubOAuthSession(
+                accessToken: credential.accessToken,
+                userID: nil,
+                login: credential.login,
+                source: credential.source.sessionSource,
+                grantedScopes: [],
+                savedAt: credential.savedAt ?? legacySavedAt
+            )
+        }
+
+        guard let token = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !token.isEmpty else {
+            throw CredentialStoreError.invalidData
+        }
+
+        return GitHubOAuthSession(
+            accessToken: token,
+            source: .personalAccessToken,
+            grantedScopes: [],
+            savedAt: legacySavedAt
+        )
+    }
+
+    static func encodeSession(_ session: GitHubOAuthSession) throws -> Data {
+        try encoder.encode(session)
+    }
+
+    static func decodeStoredCredentialData(
+        _ data: Data,
+        legacySavedAt: Date = Date()
+    ) throws -> GitHubOAuthSession {
+        try decodeStoredSessionData(data, legacySavedAt: legacySavedAt)
+    }
+
+    static func encodeCredential(_ credential: GitHubOAuthSession) throws -> Data {
+        try encodeSession(credential)
+    }
+
+    private func loadData(service: String) throws -> Data? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -60,8 +139,7 @@ struct KeychainCredentialStore: CredentialStore {
             guard let data = item as? Data else {
                 throw CredentialStoreError.invalidData
             }
-
-            return try Self.decodeStoredSessionData(data)
+            return data
         case errSecItemNotFound:
             return nil
         default:
@@ -69,8 +147,7 @@ struct KeychainCredentialStore: CredentialStore {
         }
     }
 
-    func saveSession(_ session: GitHubAppSession) throws {
-        let data = try Self.encodeSession(session)
+    private func upsertData(_ data: Data, service: String) throws {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -99,7 +176,7 @@ struct KeychainCredentialStore: CredentialStore {
         }
     }
 
-    func removeSession() throws {
+    private func removeData(service: String) throws {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -111,60 +188,14 @@ struct KeychainCredentialStore: CredentialStore {
             throw CredentialStoreError.unexpectedStatus(Int(status))
         }
     }
-
-    static func decodeStoredSessionData(
-        _ data: Data,
-        legacySavedAt: Date = Date()
-    ) throws -> GitHubAppSession {
-        if let session = try? decoder.decode(GitHubAppSession.self, from: data) {
-            return session
-        }
-
-        if let credential = try? decoder.decode(LegacyGitHubCredential.self, from: data) {
-            return GitHubAppSession(
-                accessToken: credential.accessToken,
-                userID: nil,
-                login: credential.login,
-                source: credential.source.sessionSource,
-                savedAt: credential.savedAt ?? legacySavedAt
-            )
-        }
-
-        guard let token = String(data: data, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-            !token.isEmpty else {
-            throw CredentialStoreError.invalidData
-        }
-
-        return GitHubAppSession(
-            accessToken: token,
-            source: .personalAccessToken,
-            savedAt: legacySavedAt
-        )
-    }
-
-    static func encodeSession(_ session: GitHubAppSession) throws -> Data {
-        try encoder.encode(session)
-    }
-
-    static func decodeStoredCredentialData(
-        _ data: Data,
-        legacySavedAt: Date = Date()
-    ) throws -> GitHubAppSession {
-        try decodeStoredSessionData(data, legacySavedAt: legacySavedAt)
-    }
-
-    static func encodeCredential(_ credential: GitHubAppSession) throws -> Data {
-        try encodeSession(credential)
-    }
 }
 
 struct DemoCredentialStore: CredentialStore {
-    func loadSession() throws -> GitHubAppSession? {
+    func loadSession() throws -> GitHubOAuthSession? {
         nil
     }
 
-    func saveSession(_ session: GitHubAppSession) throws {
+    func saveSession(_ session: GitHubOAuthSession) throws {
         throw CredentialStoreError.disabledInDemoMode
     }
 
@@ -174,20 +205,21 @@ struct DemoCredentialStore: CredentialStore {
 }
 #else
 struct KeychainCredentialStore: CredentialStore {
-    func loadSession() throws -> GitHubAppSession? {
+    func loadSession() throws -> GitHubOAuthSession? {
         guard let token = ProcessInfo.processInfo.environment["GITHUB_TOKEN"],
               !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return nil
         }
 
-        return GitHubAppSession(
+        return GitHubOAuthSession(
             accessToken: token,
             source: .personalAccessToken,
+            grantedScopes: [],
             savedAt: Date()
         )
     }
 
-    func saveSession(_ session: GitHubAppSession) throws {
+    func saveSession(_ session: GitHubOAuthSession) throws {
         throw CredentialStoreError.unsupportedPlatform
     }
 
@@ -197,11 +229,11 @@ struct KeychainCredentialStore: CredentialStore {
 }
 
 struct DemoCredentialStore: CredentialStore {
-    func loadSession() throws -> GitHubAppSession? {
+    func loadSession() throws -> GitHubOAuthSession? {
         nil
     }
 
-    func saveSession(_ session: GitHubAppSession) throws {
+    func saveSession(_ session: GitHubOAuthSession) throws {
         throw CredentialStoreError.disabledInDemoMode
     }
 
@@ -225,9 +257,24 @@ private enum LegacyGitHubCredentialSource: String, Decodable {
     var sessionSource: GitHubSessionSource {
         switch self {
         case .oauthBrowser:
-            return .githubAppBrowser
+            return .oauthBrowser
         case .personalAccessToken:
             return .personalAccessToken
         }
     }
+}
+
+private struct LegacyGitHubAppSession: Decodable {
+    let refreshToken: String?
+    let selectedInstallationIDs: [Int64]?
+    let source: LegacyGitHubAppSessionSource
+
+    var requiresReconnect: Bool {
+        source == .githubAppBrowser || refreshToken != nil || !(selectedInstallationIDs ?? []).isEmpty
+    }
+}
+
+private enum LegacyGitHubAppSessionSource: String, Decodable {
+    case githubAppBrowser
+    case personalAccessToken
 }

@@ -54,7 +54,7 @@ struct SettingsView: View {
                     Text("Monitored Workflows")
                         .font(.system(size: 22, weight: .semibold, design: .rounded))
 
-                    Text("Add workflows manually or discover them from the repositories selected in GitHub Access. actionMonitor watches these in the saved order and keeps the list on this Mac.")
+                    Text("Add workflows manually or discover them from the repositories selected below. actionMonitor watches these in the saved order and keeps the list on this Mac.")
                         .foregroundStyle(.secondary)
                 }
 
@@ -120,7 +120,7 @@ struct SettingsView: View {
                         Text("Discovery Review")
                             .font(.headline)
 
-                        Text("Scan the repositories selected in GitHub Access, review the workflows actionMonitor found, and add the ones you want to monitor.")
+                        Text("Scan the repositories you selected, review the workflows actionMonitor found, and add the ones you want to monitor.")
                             .foregroundStyle(.secondary)
 
                         WorkflowDiscoveryReviewView(
@@ -144,10 +144,10 @@ struct SettingsView: View {
         SettingsSectionCard {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("GitHub Access")
+                    Text("GitHub Repositories")
                         .font(.system(size: 22, weight: .semibold, design: .rounded))
 
-                    Text("Sign in with your GitHub App browser flow, then choose which accessible repositories actionMonitor is allowed to monitor on this Mac.")
+                    Text("Sign in with GitHub in your browser, then choose which accessible repositories actionMonitor is allowed to monitor on this Mac.")
                         .foregroundStyle(.secondary)
                 }
 
@@ -171,7 +171,7 @@ struct SettingsView: View {
                     personalAccessTokenSection
                 }
 
-                if let credentialMessage = store.credentialMessage {
+                if let credentialMessage = visibleCredentialMessage {
                     InlineMessageView(
                         systemImage: "info.circle.fill",
                         message: credentialMessage,
@@ -188,19 +188,21 @@ struct SettingsView: View {
         case .signedOut:
             authCallToActionCard(
                 title: "No GitHub session saved",
-                description: "Browser sign-in is the recommended way to connect GitHub App access for private repositories and reliable polling."
+                description: "Browser sign-in is the recommended way to connect GitHub for private repositories and reliable polling."
             )
-        case .authError(let message):
+        case .authError:
             VStack(alignment: .leading, spacing: 12) {
-                InlineMessageView(
-                    systemImage: "exclamationmark.circle.fill",
-                    message: message,
-                    tint: .red
-                )
+                if let authErrorMessage = visibleAuthErrorMessage {
+                    InlineMessageView(
+                        systemImage: "exclamationmark.circle.fill",
+                        message: authErrorMessage,
+                        tint: .red
+                    )
+                }
 
                 authCallToActionCard(
                     title: "GitHub sign-in needs attention",
-                    description: "Start browser sign-in again to restore your GitHub App session."
+                    description: "Start browser sign-in again to restore your saved GitHub session."
                 )
             }
         case .signingInBrowser(let context):
@@ -213,11 +215,11 @@ struct SettingsView: View {
                     store.cancelGitHubSignIn()
                 }
             )
-        case .signedInGitHubApp(let summary):
+        case .signedInOAuthApp(let summary):
             CredentialSummaryCard(
                 summary: summary,
                 title: summary.login.map { "@\($0)" } ?? "GitHub connected",
-                subtitle: "Signed in with a GitHub App user session.",
+                subtitle: "Signed in with the GitHub OAuth browser flow.",
                 primaryButtonTitle: "Sign In Again",
                 primaryAction: {
                     store.beginGitHubSignIn()
@@ -255,7 +257,7 @@ struct SettingsView: View {
                     Text("Accessible Repositories")
                         .font(.headline)
 
-                    Text("These come from `GET /user/installations` and the repositories your current GitHub App user session can access.")
+                    Text("These come from `GET /user/repos` and reflect the repositories your current GitHub session can access.")
                         .foregroundStyle(.secondary)
                 }
 
@@ -270,7 +272,7 @@ struct SettingsView: View {
             if store.accessibleRepositories.isEmpty {
                 Text(store.isLoadingGitHubAccess
                      ? "Loading accessible repositories…"
-                     : "No accessible repositories found yet. Install the GitHub App on an account or organization, then sign in again if needed.")
+                     : "No accessible repositories found yet. Some organizations may require OAuth app approval or an active SSO session even after sign-in.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             } else {
@@ -302,7 +304,7 @@ struct SettingsView: View {
                                 Text(repository.fullName)
                                     .font(.subheadline.weight(.semibold))
 
-                                Text("Installation #\(repository.installationID)\(repository.defaultBranch.map { " • \($0)" } ?? "")")
+                                Text(repository.defaultBranch.map { "Default branch: \($0)" } ?? "Default branch unavailable")
                                     .font(.footnote)
                                     .foregroundStyle(.secondary)
                             }
@@ -448,6 +450,34 @@ struct SettingsView: View {
             workflowActionMessage = error.localizedDescription
         }
     }
+
+    private var visibleCredentialMessage: String? {
+        guard let credentialMessage = store.credentialMessage else {
+            return nil
+        }
+
+        if credentialMessage == store.gitHubSignInConfigurationMessage {
+            return nil
+        }
+
+        if case .authError(let message) = store.authState, credentialMessage == message {
+            return nil
+        }
+
+        return credentialMessage
+    }
+
+    private var visibleAuthErrorMessage: String? {
+        guard case .authError(let message) = store.authState else {
+            return nil
+        }
+
+        if message == visibleCredentialMessage || message == store.gitHubSignInConfigurationMessage {
+            return nil
+        }
+
+        return message
+    }
 }
 
 private struct SettingsSectionCard<Content: View>: View {
@@ -491,12 +521,12 @@ private struct CredentialSummaryCard: View {
             HStack(spacing: 14) {
                 Label(summary.source.displayName, systemImage: iconName)
 
-                if let accessTokenExpiresAt = summary.accessTokenExpiresAt {
-                    Label("Access expires \(accessTokenExpiresAt.formatted(date: .abbreviated, time: .shortened))", systemImage: "clock.arrow.circlepath")
-                }
-
                 if summary.selectedRepositoryCount > 0 {
                     Label("\(summary.selectedRepositoryCount) repos selected", systemImage: "checklist")
+                }
+
+                if !summary.grantedScopes.isEmpty {
+                    Label(summary.grantedScopes.joined(separator: ", "), systemImage: "lock.shield")
                 }
 
                 Label("Saved \(summary.savedAt.formatted(date: .abbreviated, time: .shortened))", systemImage: "clock")
@@ -527,7 +557,7 @@ private struct CredentialSummaryCard: View {
 
     private var iconName: String {
         switch summary.source {
-        case .githubAppBrowser:
+        case .oauthBrowser:
             return "safari"
         case .personalAccessToken:
             return "key.fill"

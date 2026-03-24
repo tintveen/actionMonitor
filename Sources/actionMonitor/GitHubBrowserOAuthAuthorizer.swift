@@ -9,15 +9,11 @@ import FoundationNetworking
 #endif
 
 protocol GitHubBrowserOAuthAuthorizing: Sendable {
-    func prepareAuthorization(using configuration: GitHubAppConfiguration) async throws -> GitHubBrowserAuthorizationContext
+    func prepareAuthorization(using configuration: GitHubOAuthAppConfiguration) async throws -> GitHubBrowserAuthorizationContext
     func waitForAuthorization(
         using context: GitHubBrowserAuthorizationContext,
-        configuration: GitHubAppConfiguration
-    ) async throws -> GitHubAppAuthorizationResult
-    func refreshSession(
-        _ session: GitHubAppSession,
-        configuration: GitHubAppConfiguration
-    ) async throws -> GitHubAppSession
+        configuration: GitHubOAuthAppConfiguration
+    ) async throws -> GitHubOAuthAuthorizationResult
     func cancelAuthorization()
 }
 
@@ -30,7 +26,6 @@ enum GitHubBrowserOAuthError: LocalizedError, Equatable {
     case invalidResponse
     case invalidState
     case loopbackListenerFailed(String)
-    case refreshTokenUnavailable
     case unexpectedOAuthError(String)
     case unexpectedStatus(code: Int, message: String?)
     case network(String)
@@ -53,8 +48,6 @@ enum GitHubBrowserOAuthError: LocalizedError, Equatable {
             return "GitHub sign-in could not be verified safely. Start sign-in again."
         case .loopbackListenerFailed(let message):
             return "Could not start the GitHub callback listener: \(message)"
-        case .refreshTokenUnavailable:
-            return "GitHub sign-in needs to be started again."
         case .unexpectedOAuthError(let message):
             return "GitHub sign-in failed: \(message)"
         case .unexpectedStatus(let code, let message):
@@ -114,7 +107,7 @@ final class GitHubBrowserOAuthAuthorizer: GitHubBrowserOAuthAuthorizing, @unchec
         self.randomData = randomData
     }
 
-    func prepareAuthorization(using configuration: GitHubAppConfiguration) async throws -> GitHubBrowserAuthorizationContext {
+    func prepareAuthorization(using configuration: GitHubOAuthAppConfiguration) async throws -> GitHubBrowserAuthorizationContext {
         cancelAuthorization()
 
         let receiver = callbackReceiverFactory.makeReceiver(host: configuration.callbackHost)
@@ -133,6 +126,7 @@ final class GitHubBrowserOAuthAuthorizer: GitHubBrowserOAuthAuthorizing, @unchec
             components?.queryItems = [
                 URLQueryItem(name: "client_id", value: configuration.clientID),
                 URLQueryItem(name: "redirect_uri", value: redirectURI.absoluteString),
+                URLQueryItem(name: "scope", value: "repo"),
                 URLQueryItem(name: "state", value: state),
                 URLQueryItem(name: "code_challenge", value: codeChallenge),
                 URLQueryItem(name: "code_challenge_method", value: "S256"),
@@ -170,8 +164,8 @@ final class GitHubBrowserOAuthAuthorizer: GitHubBrowserOAuthAuthorizing, @unchec
 
     func waitForAuthorization(
         using context: GitHubBrowserAuthorizationContext,
-        configuration: GitHubAppConfiguration
-    ) async throws -> GitHubAppAuthorizationResult {
+        configuration: GitHubOAuthAppConfiguration
+    ) async throws -> GitHubOAuthAuthorizationResult {
         guard let receiver = currentActiveReceiver else {
             throw GitHubBrowserOAuthError.callbackCancelled
         }
@@ -203,11 +197,9 @@ final class GitHubBrowserOAuthAuthorizer: GitHubBrowserOAuthAuthorizing, @unchec
             receiver.cancel()
             clearActiveReceiver(receiver)
 
-            return GitHubAppAuthorizationResult(
+            return GitHubOAuthAuthorizationResult(
                 accessToken: token.accessToken,
-                accessTokenExpiresAt: token.accessTokenExpiresAt(from: now()),
-                refreshToken: token.refreshToken,
-                refreshTokenExpiresAt: token.refreshTokenExpiresAt(from: now()),
+                grantedScopes: token.grantedScopes,
                 userID: profile?.id,
                 login: profile?.login
             )
@@ -233,33 +225,6 @@ final class GitHubBrowserOAuthAuthorizer: GitHubBrowserOAuthAuthorizing, @unchec
 
         receiver.cancel()
         clearActiveReceiver(receiver)
-    }
-
-    func authorizationURL(for context: GitHubBrowserAuthorizationContext) -> URL {
-        context.authorizationURL
-    }
-
-    func refreshSession(
-        _ session: GitHubAppSession,
-        configuration: GitHubAppConfiguration
-    ) async throws -> GitHubAppSession {
-        guard let refreshToken = session.refreshToken,
-              !refreshToken.isEmpty else {
-            throw GitHubBrowserOAuthError.refreshTokenUnavailable
-        }
-
-        let token = try await refreshUserAccessToken(
-            refreshToken: refreshToken,
-            configuration: configuration
-        )
-
-        return session.updatingTokens(
-            accessToken: token.accessToken,
-            accessTokenExpiresAt: token.accessTokenExpiresAt(from: now()),
-            refreshToken: token.refreshToken,
-            refreshTokenExpiresAt: token.refreshTokenExpiresAt(from: now()),
-            savedAt: now()
-        )
     }
 
     private var currentActiveReceiver: (any GitHubOAuthCallbackReceiving)? {
@@ -288,7 +253,7 @@ final class GitHubBrowserOAuthAuthorizer: GitHubBrowserOAuthAuthorizing, @unchec
         code: String,
         redirectURI: URL,
         codeVerifier: String,
-        configuration: GitHubAppConfiguration
+        configuration: GitHubOAuthAppConfiguration
     ) async throws -> GitHubOAuthToken {
         do {
             var request = URLRequest(url: gitHubURL.appending(path: "/login/oauth/access_token"))
@@ -324,57 +289,7 @@ final class GitHubBrowserOAuthAuthorizer: GitHubBrowserOAuthAuthorizing, @unchec
 
             return GitHubOAuthToken(
                 accessToken: accessToken,
-                expiresIn: tokenResponse.expiresIn,
-                refreshToken: tokenResponse.refreshToken,
-                refreshTokenExpiresIn: tokenResponse.refreshTokenExpiresIn
-            )
-        } catch let error as GitHubBrowserOAuthError {
-            throw error
-        } catch {
-            throw GitHubBrowserOAuthError.network(error.localizedDescription)
-        }
-    }
-
-    private func refreshUserAccessToken(
-        refreshToken: String,
-        configuration: GitHubAppConfiguration
-    ) async throws -> GitHubOAuthToken {
-        do {
-            var request = URLRequest(url: gitHubURL.appending(path: "/login/oauth/access_token"))
-            request.httpMethod = "POST"
-            request.httpBody = formEncodedBody([
-                "client_id": configuration.clientID,
-                "client_secret": configuration.clientSecret,
-                "grant_type": "refresh_token",
-                "refresh_token": refreshToken,
-            ])
-            request.setValue("application/json", forHTTPHeaderField: "Accept")
-            request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-            request.setValue(GitHubClient.userAgent, forHTTPHeaderField: "User-Agent")
-
-            let (data, response) = try await session.data(for: request)
-            let httpResponse = try validatedHTTPResponse(response)
-
-            guard httpResponse.statusCode == 200 else {
-                throw decodeHTTPError(data: data, statusCode: httpResponse.statusCode)
-            }
-
-            let tokenResponse = try JSONDecoder().decode(GitHubOAuthTokenResponse.self, from: data)
-            if let error = tokenResponse.error {
-                throw GitHubBrowserOAuthError.unexpectedOAuthError(
-                    tokenResponse.errorDescription ?? error
-                )
-            }
-
-            guard let accessToken = tokenResponse.accessToken, !accessToken.isEmpty else {
-                throw GitHubBrowserOAuthError.invalidResponse
-            }
-
-            return GitHubOAuthToken(
-                accessToken: accessToken,
-                expiresIn: tokenResponse.expiresIn,
-                refreshToken: tokenResponse.refreshToken,
-                refreshTokenExpiresIn: tokenResponse.refreshTokenExpiresIn
+                grantedScopes: tokenResponse.grantedScopes
             )
         } catch let error as GitHubBrowserOAuthError {
             throw error
@@ -468,35 +383,33 @@ private struct GitHubOAuthCallback: Equatable {
 
 private struct GitHubOAuthTokenResponse: Decodable {
     let accessToken: String?
-    let expiresIn: Int?
-    let refreshToken: String?
-    let refreshTokenExpiresIn: Int?
+    let scope: String?
     let error: String?
     let errorDescription: String?
 
     enum CodingKeys: String, CodingKey {
         case accessToken = "access_token"
-        case expiresIn = "expires_in"
-        case refreshToken = "refresh_token"
-        case refreshTokenExpiresIn = "refresh_token_expires_in"
+        case scope
         case error
         case errorDescription = "error_description"
+    }
+
+    var grantedScopes: [String] {
+        guard let scope else {
+            return []
+        }
+
+        return scope
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .filter { !$0.isEmpty }
+            .sorted()
     }
 }
 
 private struct GitHubOAuthToken {
     let accessToken: String
-    let expiresIn: Int?
-    let refreshToken: String?
-    let refreshTokenExpiresIn: Int?
-
-    func accessTokenExpiresAt(from now: Date) -> Date? {
-        expiresIn.map { now.addingTimeInterval(TimeInterval($0)) }
-    }
-
-    func refreshTokenExpiresAt(from now: Date) -> Date? {
-        refreshTokenExpiresIn.map { now.addingTimeInterval(TimeInterval($0)) }
-    }
+    let grantedScopes: [String]
 }
 
 private struct GitHubViewerResponse: Decodable {

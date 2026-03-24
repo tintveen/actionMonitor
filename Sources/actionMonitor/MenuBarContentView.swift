@@ -10,7 +10,7 @@ struct MenuBarContentView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Deploy Monitor")
+                Text("Action Monitor")
                     .font(.system(size: 16, weight: .semibold, design: .rounded))
 
                 Text(statusSubtitle)
@@ -228,9 +228,11 @@ struct MenuBarIconView: View {
 
     var body: some View {
         Image(systemName: status.symbolName)
-            .symbolRenderingMode(.palette)
-            .foregroundStyle(status.color, status.color.opacity(0.3))
-            .font(.system(size: 17, weight: .semibold))
+            .renderingMode(.template)
+            .symbolRenderingMode(.monochrome)
+            .foregroundStyle(.primary)
+            .font(.system(size: 14, weight: .semibold))
+            .frame(width: 14, height: 14)
             .help(status.accessibilityLabel)
     }
 }

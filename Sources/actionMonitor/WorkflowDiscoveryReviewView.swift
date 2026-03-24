@@ -33,12 +33,12 @@ struct WorkflowDiscoveryReviewView: View {
             } else if store.accessibleRepositories.isEmpty {
                 discoveryEmptyState(
                     title: "No accessible repositories found",
-                    description: "Install the GitHub App on an account or organization, then reload GitHub access and try discovery again."
+                    description: "GitHub sign-in succeeded, but there are no repositories available yet. Some organizations may require OAuth app approval or an active SSO session."
                 )
             } else if !store.hasSelectedAccessibleRepositories {
                 discoveryEmptyState(
                     title: "Select repositories first",
-                    description: "Choose at least one repository in GitHub Access before scanning for workflows.",
+                    description: "Choose at least one repository before scanning for workflows.",
                     actionTitle: zeroSelectionActionTitle,
                     action: zeroSelectionAction
                 )
@@ -60,6 +60,12 @@ struct WorkflowDiscoveryReviewView: View {
                     store.discoverWorkflows()
                 }
                 .disabled(!store.canDiscoverWorkflows || store.isDiscoveringWorkflows)
+
+                if let helpTitle = store.workflowDiscoveryHelpTitle {
+                    Button(helpTitle) {
+                        store.openWorkflowDiscoveryHelp()
+                    }
+                }
 
                 if let manualActionTitle, let manualAction {
                     Button(manualActionTitle, action: manualAction)

@@ -1,35 +1,35 @@
 import Foundation
 
 protocol GitHubAuthManaging: Sendable {
-    var configuration: GitHubAppConfiguration? { get }
+    var configuration: GitHubOAuthAppConfiguration? { get }
 
-    func loadPersistedSession() throws -> GitHubAppSession?
-    func currentSession() -> GitHubAppSession?
+    func loadPersistedSession() throws -> GitHubOAuthSession?
+    func currentSession() -> GitHubOAuthSession?
+    func ensureSessionLoaded() async throws -> GitHubOAuthSession?
     func prepareAuthorization() async throws -> GitHubBrowserAuthorizationContext
-    func completeAuthorization(using context: GitHubBrowserAuthorizationContext) async throws -> GitHubAppSession
-    func validSession() async throws -> GitHubAppSession?
-    func refreshSessionIfNeeded() async throws -> GitHubAppSession?
-    func forceRefreshSession() async throws -> GitHubAppSession?
-    func saveManualSession(_ session: GitHubAppSession) throws
-    func updateSelections(installationIDs: [Int64], repositoryIDs: [Int64]) throws -> GitHubAppSession?
+    func completeAuthorization(using context: GitHubBrowserAuthorizationContext) async throws -> GitHubOAuthSession
+    func validSession() async throws -> GitHubOAuthSession?
+    func saveManualSession(_ session: GitHubOAuthSession) throws
+    func updateSelections(repositoryIDs: [Int64]) throws -> GitHubOAuthSession?
     func disconnect() throws
     func cancelAuthorization()
 }
 
 final class GitHubAuthManager: GitHubAuthManaging, @unchecked Sendable {
-    let configuration: GitHubAppConfiguration?
+    let configuration: GitHubOAuthAppConfiguration?
 
     private let credentialStore: any CredentialStore
     private let browserAuthorizer: any GitHubBrowserOAuthAuthorizing
     private let now: @Sendable () -> Date
     private let stateLock = NSLock()
-    private var cachedSession: GitHubAppSession?
-    private var refreshTask: Task<GitHubAppSession, Error>?
+    private var cachedSession: GitHubOAuthSession?
+    private var didAttemptPersistedSessionRestore = false
+    private var restoreTask: Task<GitHubOAuthSession?, Error>?
 
     init(
         credentialStore: any CredentialStore = KeychainCredentialStore(),
         browserAuthorizer: any GitHubBrowserOAuthAuthorizing = GitHubBrowserOAuthAuthorizer(),
-        configuration: GitHubAppConfiguration? = GitHubAppConfiguration.load(),
+        configuration: GitHubOAuthAppConfiguration? = GitHubOAuthAppConfiguration.load(),
         now: @escaping @Sendable () -> Date = Date.init
     ) {
         self.credentialStore = credentialStore
@@ -38,14 +38,53 @@ final class GitHubAuthManager: GitHubAuthManaging, @unchecked Sendable {
         self.now = now
     }
 
-    func loadPersistedSession() throws -> GitHubAppSession? {
+    func loadPersistedSession() throws -> GitHubOAuthSession? {
         let session = try credentialStore.loadSession()
-        setCachedSession(session)
+        setRestoreState(session: session, didAttemptRestore: true, restoreTask: nil)
         return session
     }
 
-    func currentSession() -> GitHubAppSession? {
+    func currentSession() -> GitHubOAuthSession? {
         withStateLock { cachedSession }
+    }
+
+    func ensureSessionLoaded() async throws -> GitHubOAuthSession? {
+        if let cachedSession = cachedSessionValue() {
+            return cachedSession
+        }
+
+        let existingTask = withStateLock { () -> Task<GitHubOAuthSession?, Error>? in
+            if didAttemptPersistedSessionRestore {
+                return nil
+            }
+
+            if let restoreTask {
+                return restoreTask
+            }
+
+            let restoreTask = Task { [credentialStore] in
+                try credentialStore.loadSession()
+            }
+            self.restoreTask = restoreTask
+            return restoreTask
+        }
+
+        guard let existingTask else {
+            return cachedSessionValue()
+        }
+
+        do {
+            let session = try await existingTask.value
+            setRestoreState(session: session, didAttemptRestore: true, restoreTask: nil)
+            return session
+        } catch {
+            setRestoreState(
+                session: cachedSessionValue(),
+                didAttemptRestore: true,
+                restoreTask: nil
+            )
+            throw error
+        }
     }
 
     func prepareAuthorization() async throws -> GitHubBrowserAuthorizationContext {
@@ -56,7 +95,7 @@ final class GitHubAuthManager: GitHubAuthManaging, @unchecked Sendable {
         return try await browserAuthorizer.prepareAuthorization(using: configuration)
     }
 
-    func completeAuthorization(using context: GitHubBrowserAuthorizationContext) async throws -> GitHubAppSession {
+    func completeAuthorization(using context: GitHubBrowserAuthorizationContext) async throws -> GitHubOAuthSession {
         guard let configuration else {
             throw GitHubBrowserOAuthError.invalidConfiguration
         }
@@ -66,81 +105,46 @@ final class GitHubAuthManager: GitHubAuthManaging, @unchecked Sendable {
             configuration: configuration
         )
 
-        let session = GitHubAppSession(
+        let session = GitHubOAuthSession(
             accessToken: result.accessToken,
-            accessTokenExpiresAt: result.accessTokenExpiresAt,
-            refreshToken: result.refreshToken,
-            refreshTokenExpiresAt: result.refreshTokenExpiresAt,
             userID: result.userID,
             login: result.login,
-            source: .githubAppBrowser,
+            source: .oauthBrowser,
+            grantedScopes: result.grantedScopes,
             savedAt: now()
         )
 
         try credentialStore.saveSession(session)
-        setCachedSession(session)
+        setRestoreState(session: session, didAttemptRestore: true, restoreTask: nil)
         return session
     }
 
-    func validSession() async throws -> GitHubAppSession? {
-        if cachedSessionValue() == nil {
-            let session = try credentialStore.loadSession()
-            setCachedSession(session)
-        }
-
-        return try await refreshSessionIfNeeded()
+    func validSession() async throws -> GitHubOAuthSession? {
+        return cachedSessionValue()
     }
 
-    func refreshSessionIfNeeded() async throws -> GitHubAppSession? {
-        guard let session = cachedSessionValue() else {
-            return nil
-        }
-
-        guard session.source == .githubAppBrowser else {
-            return session
-        }
-
-        if let accessTokenExpiresAt = session.accessTokenExpiresAt,
-           accessTokenExpiresAt <= now().addingTimeInterval(300) {
-            return try await refreshSession()
-        }
-
-        return session
-    }
-
-    func forceRefreshSession() async throws -> GitHubAppSession? {
-        guard cachedSessionValue() != nil else {
-            return nil
-        }
-
-        return try await refreshSession()
-    }
-
-    func saveManualSession(_ session: GitHubAppSession) throws {
-        clearRefreshTask()
+    func saveManualSession(_ session: GitHubOAuthSession) throws {
         try credentialStore.saveSession(session)
-        setCachedSession(session)
+        setRestoreState(session: session, didAttemptRestore: true, restoreTask: nil)
     }
 
-    func updateSelections(installationIDs: [Int64], repositoryIDs: [Int64]) throws -> GitHubAppSession? {
+    func updateSelections(repositoryIDs: [Int64]) throws -> GitHubOAuthSession? {
         guard let cachedSession = cachedSessionValue() else {
             return nil
         }
 
         let updatedSession = cachedSession.updatingSelections(
-            installationIDs: installationIDs,
             repositoryIDs: repositoryIDs,
             savedAt: now()
         )
         try credentialStore.saveSession(updatedSession)
-        setCachedSession(updatedSession)
+        setRestoreState(session: updatedSession, didAttemptRestore: true, restoreTask: nil)
         return updatedSession
     }
 
     func disconnect() throws {
         browserAuthorizer.cancelAuthorization()
-        clearRefreshTask()
-        setCachedSession(nil)
+        setRestoreState(session: nil, didAttemptRestore: true, restoreTask: nil)
         try credentialStore.removeSession()
     }
 
@@ -148,65 +152,17 @@ final class GitHubAuthManager: GitHubAuthManaging, @unchecked Sendable {
         browserAuthorizer.cancelAuthorization()
     }
 
-    private func refreshSession() async throws -> GitHubAppSession {
-        let existingTask: Task<GitHubAppSession, Error>? = withStateLock { self.refreshTask }
-        if let existingTask = existingTask {
-            return try await existingTask.value
-        }
-
-        let maybeSession = withStateLock { cachedSession }
-        if maybeSession == nil {
-            throw GitHubBrowserOAuthError.invalidConfiguration
-        }
-        let session = maybeSession!
-
-        if configuration == nil {
-            throw GitHubBrowserOAuthError.invalidConfiguration
-        }
-        let configuration = configuration!
-
-        let newRefreshTask = Task<GitHubAppSession, Error> {
-            let refreshedSession = try await browserAuthorizer.refreshSession(
-                session,
-                configuration: configuration
-            )
-            try credentialStore.saveSession(refreshedSession)
-            return refreshedSession
-        }
-        setRefreshTask(newRefreshTask)
-
-        do {
-            let refreshedSession = try await newRefreshTask.value
-            setCachedSession(refreshedSession)
-            clearRefreshTask()
-            return refreshedSession
-        } catch {
-            clearRefreshTask()
-            if case GitHubBrowserOAuthError.refreshTokenUnavailable = error {
-                try? credentialStore.removeSession()
-                setCachedSession(nil)
-            }
-
-            throw error
-        }
-    }
-
-    private func setCachedSession(_ session: GitHubAppSession?) {
+    private func setRestoreState(
+        session: GitHubOAuthSession?,
+        didAttemptRestore: Bool? = nil,
+        restoreTask: Task<GitHubOAuthSession?, Error>? = nil
+    ) {
         stateLock.lock()
         cachedSession = session
-        stateLock.unlock()
-    }
-
-    private func setRefreshTask(_ task: Task<GitHubAppSession, Error>?) {
-        stateLock.lock()
-        refreshTask = task
-        stateLock.unlock()
-    }
-
-    private func clearRefreshTask() {
-        stateLock.lock()
-        refreshTask?.cancel()
-        refreshTask = nil
+        if let didAttemptRestore {
+            self.didAttemptPersistedSessionRestore = didAttemptRestore
+        }
+        self.restoreTask = restoreTask
         stateLock.unlock()
     }
 
@@ -216,7 +172,7 @@ final class GitHubAuthManager: GitHubAuthManaging, @unchecked Sendable {
         return body()
     }
 
-    private func cachedSessionValue() -> GitHubAppSession? {
+    private func cachedSessionValue() -> GitHubOAuthSession? {
         withStateLock { cachedSession }
     }
 }

@@ -86,7 +86,7 @@ struct OnboardingView: View {
                 Text("Welcome")
                     .font(.system(size: 24, weight: .semibold, design: .rounded))
 
-                Text("actionMonitor watches the GitHub Actions workflows you care about from your menu bar. First we’ll connect the GitHub App in your browser, then we’ll add the first workflow you want to monitor.")
+                Text("actionMonitor watches the GitHub Actions workflows you care about from your menu bar. First we’ll connect GitHub in your browser, then we’ll add the first workflow you want to monitor.")
                     .foregroundStyle(.secondary)
 
                 VStack(alignment: .leading, spacing: 10) {
@@ -125,12 +125,12 @@ struct OnboardingView: View {
                     WizardMessage(systemImage: "gear.badge.xmark", message: configurationMessage, tint: .orange)
                 }
 
-                if let credentialMessage = store.credentialMessage {
+                if let credentialMessage = visibleCredentialMessage {
                     WizardMessage(systemImage: "info.circle.fill", message: credentialMessage, tint: .blue)
                 }
 
                 switch store.authState {
-                case .signedInGitHubApp(let summary):
+                case .signedInOAuthApp(let summary):
                     authSummary(summary: summary, description: "GitHub browser sign-in is ready. Repository access will be loaded automatically after sign-in.")
                 case .signedInPersonalAccessToken(let summary):
                     authSummary(summary: summary, description: "A personal access token is saved. You can continue setup or switch to browser sign-in.")
@@ -159,8 +159,10 @@ struct OnboardingView: View {
                             Spacer()
                         }
                     }
-                case .authError(let message):
-                    WizardMessage(systemImage: "exclamationmark.circle.fill", message: message, tint: .red)
+                case .authError:
+                    if let authErrorMessage = visibleAuthErrorMessage {
+                        WizardMessage(systemImage: "exclamationmark.circle.fill", message: authErrorMessage, tint: .red)
+                    }
                     browserSignInActions
                 case .signedOut:
                     browserSignInActions
@@ -217,7 +219,7 @@ struct OnboardingView: View {
                 Text("Discover Workflows")
                     .font(.system(size: 24, weight: .semibold, design: .rounded))
 
-                Text("actionMonitor can scan the repositories you selected in GitHub Access, suggest workflows to monitor, and add them in one step.")
+                Text("actionMonitor can scan the repositories you selected, suggest workflows to monitor, and add them in one step.")
                     .foregroundStyle(.secondary)
 
                 if !store.workflows.isEmpty {
@@ -242,7 +244,7 @@ struct OnboardingView: View {
                     manualAction: {
                         showsManualWorkflowForm.toggle()
                     },
-                    zeroSelectionActionTitle: "Open GitHub Access",
+                    zeroSelectionActionTitle: "Open Repositories",
                     zeroSelectionAction: {
                         store.showSettingsDirectly()
                     }
@@ -341,7 +343,7 @@ struct OnboardingView: View {
 
     private var browserSignInActions: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Use browser sign-in so the app can access your repositories through the GitHub App session without asking you to manage tokens by hand.")
+            Text("Use browser sign-in so the app can access your repositories without asking you to manage tokens by hand.")
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 12) {
@@ -366,7 +368,7 @@ struct OnboardingView: View {
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 14) {
-                Label(summary.source.displayName, systemImage: summary.source == .githubAppBrowser ? "safari" : "key.fill")
+                Label(summary.source.displayName, systemImage: summary.source == .oauthBrowser ? "safari" : "key.fill")
 
                 if summary.selectedRepositoryCount > 0 {
                     Label("\(summary.selectedRepositoryCount) repos selected", systemImage: "checklist")
@@ -422,6 +424,34 @@ struct OnboardingView: View {
         case .finish:
             return "Finish"
         }
+    }
+
+    private var visibleCredentialMessage: String? {
+        guard let credentialMessage = store.credentialMessage else {
+            return nil
+        }
+
+        if credentialMessage == store.gitHubSignInConfigurationMessage {
+            return nil
+        }
+
+        if case .authError(let message) = store.authState, credentialMessage == message {
+            return nil
+        }
+
+        return credentialMessage
+    }
+
+    private var visibleAuthErrorMessage: String? {
+        guard case .authError(let message) = store.authState else {
+            return nil
+        }
+
+        if message == visibleCredentialMessage || message == store.gitHubSignInConfigurationMessage {
+            return nil
+        }
+
+        return message
     }
 }
 

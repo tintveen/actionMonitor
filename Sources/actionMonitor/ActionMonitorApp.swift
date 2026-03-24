@@ -46,7 +46,7 @@ struct ActionMonitorApp: App {
         MenuBarExtra {
             MenuBarContentView(
                 store: statusStore,
-                showSettingsWindow: settingsWindowController.showSettings
+                showSettingsWindow: statusStore.showSettings
             )
                 .frame(width: 360)
                 .onAppear {

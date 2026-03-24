@@ -9,11 +9,7 @@ protocol WorkflowRunFetching: Sendable {
 
 protocol GitHubDataFetching: WorkflowRunFetching {
     func fetchViewer(accessToken: String) async throws -> GitHubUserProfile
-    func fetchInstallations(accessToken: String) async throws -> [GitHubInstallationSummary]
-    func fetchRepositories(
-        for installationID: Int64,
-        accessToken: String
-    ) async throws -> [GitHubAccessibleRepositorySummary]
+    func fetchAccessibleRepositories(accessToken: String) async throws -> [GitHubAccessibleRepositorySummary]
     func fetchWorkflows(
         owner: String,
         repo: String,
@@ -216,22 +212,18 @@ struct GitHubClient: GitHubDataFetching {
         return try await decode(request, as: GitHubUserProfile.self)
     }
 
-    func fetchInstallations(accessToken: String) async throws -> [GitHubInstallationSummary] {
-        let request = try authorizedRequest(path: "/user/installations", accessToken: accessToken)
-        let response = try await decode(request, as: GitHubInstallationsResponse.self)
-        return response.installations.map(\.summary)
-    }
+    func fetchAccessibleRepositories(accessToken: String) async throws -> [GitHubAccessibleRepositorySummary] {
+        var repositories: [GitHubAccessibleRepositorySummary] = []
+        var nextURL: URL? = try accessibleRepositoriesURL()
 
-    func fetchRepositories(
-        for installationID: Int64,
-        accessToken: String
-    ) async throws -> [GitHubAccessibleRepositorySummary] {
-        let request = try authorizedRequest(
-            path: "/user/installations/\(installationID)/repositories",
-            accessToken: accessToken
-        )
-        let response = try await decode(request, as: GitHubInstallationRepositoriesResponse.self)
-        return response.repositories.map { $0.summary(installationID: installationID) }
+        while let currentURL = nextURL {
+            let request = makeRequest(url: currentURL, accessToken: accessToken)
+            let page = try await decodePage(request, as: [GitHubRepositoryPayload].self)
+            repositories.append(contentsOf: page.value.map(\.summary))
+            nextURL = page.nextPageURL
+        }
+
+        return repositories
     }
 
     func fetchWorkflows(
@@ -325,7 +317,7 @@ struct GitHubClient: GitHubDataFetching {
     }
 
     private func decode<T: Decodable>(_ request: URLRequest, as type: T.Type) async throws -> T {
-        let data = try await perform(request)
+        let data = try await perform(request).data
 
         do {
             return try decoder.decode(type, from: data)
@@ -334,7 +326,20 @@ struct GitHubClient: GitHubDataFetching {
         }
     }
 
-    private func perform(_ request: URLRequest) async throws -> Data {
+    private func decodePage<T: Decodable>(_ request: URLRequest, as type: T.Type) async throws -> GitHubPage<T> {
+        let response = try await perform(request)
+
+        do {
+            return GitHubPage(
+                value: try decoder.decode(type, from: response.data),
+                nextPageURL: nextPageURL(from: response.httpResponse)
+            )
+        } catch {
+            throw GitHubClientError.decodingFailed
+        }
+    }
+
+    private func perform(_ request: URLRequest) async throws -> GitHubHTTPResponse {
         do {
             let (data, response) = try await session.data(for: request)
 
@@ -344,7 +349,7 @@ struct GitHubClient: GitHubDataFetching {
 
             switch response.statusCode {
             case 200:
-                return data
+                return GitHubHTTPResponse(data: data, httpResponse: response)
             case 401:
                 throw GitHubClientError.unauthorized
             case 403:
@@ -367,38 +372,53 @@ struct GitHubClient: GitHubDataFetching {
             throw GitHubClientError.network(error.localizedDescription)
         }
     }
-}
 
-private struct GitHubInstallationsResponse: Decodable {
-    let installations: [GitHubInstallationPayload]
-}
-
-private struct GitHubInstallationPayload: Decodable {
-    let id: Int64
-    let account: GitHubAccountPayload
-    let targetType: String?
-    let repositorySelection: String?
-
-    enum CodingKeys: String, CodingKey {
-        case id
-        case account
-        case targetType = "target_type"
-        case repositorySelection = "repository_selection"
-    }
-
-    var summary: GitHubInstallationSummary {
-        GitHubInstallationSummary(
-            id: id,
-            accountLogin: account.login,
-            accountType: account.type,
-            targetType: targetType ?? account.type,
-            repositorySelection: repositorySelection ?? "selected"
+    private func accessibleRepositoriesURL() throws -> URL {
+        var components = URLComponents(
+            url: baseURL.appending(path: "/user/repos"),
+            resolvingAgainstBaseURL: false
         )
-    }
-}
+        components?.queryItems = [
+            URLQueryItem(name: "affiliation", value: "owner,collaborator,organization_member"),
+            URLQueryItem(name: "sort", value: "full_name"),
+            URLQueryItem(name: "per_page", value: "100"),
+        ]
 
-private struct GitHubInstallationRepositoriesResponse: Decodable {
-    let repositories: [GitHubRepositoryPayload]
+        guard let url = components?.url else {
+            throw GitHubClientError.invalidResponse
+        }
+
+        return url
+    }
+
+    private func nextPageURL(from response: HTTPURLResponse) -> URL? {
+        guard let linkHeader = response.value(forHTTPHeaderField: "Link") else {
+            return nil
+        }
+
+        for part in linkHeader.split(separator: ",") {
+            let segments = part.split(separator: ";").map {
+                $0.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            guard segments.count >= 2 else {
+                continue
+            }
+
+            let relation = segments[1]
+            guard relation.contains("rel=\"next\"") else {
+                continue
+            }
+
+            let urlText = segments[0]
+            guard urlText.hasPrefix("<"), urlText.hasSuffix(">") else {
+                continue
+            }
+
+            return URL(string: String(urlText.dropFirst().dropLast()))
+        }
+
+        return nil
+    }
 }
 
 private struct GitHubRepositoryPayload: Decodable {
@@ -418,11 +438,11 @@ private struct GitHubRepositoryPayload: Decodable {
         case defaultBranch = "default_branch"
     }
 
-    func summary(installationID: Int64) -> GitHubAccessibleRepositorySummary {
+    var summary: GitHubAccessibleRepositorySummary {
         GitHubAccessibleRepositorySummary(
             id: id,
-            installationID: installationID,
             ownerLogin: owner.login,
+            ownerType: owner.type,
             name: name,
             fullName: fullName,
             isPrivate: isPrivate,
@@ -454,4 +474,14 @@ private struct GitHubWorkflowJobsResponse: Decodable {
 
 struct GitHubAPIError: Decodable {
     let message: String
+}
+
+private struct GitHubHTTPResponse {
+    let data: Data
+    let httpResponse: HTTPURLResponse
+}
+
+private struct GitHubPage<Value> {
+    let value: Value
+    let nextPageURL: URL?
 }

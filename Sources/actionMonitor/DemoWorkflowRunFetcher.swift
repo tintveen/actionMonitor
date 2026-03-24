@@ -5,27 +5,12 @@ struct DemoWorkflowRunFetcher: GitHubDataFetching {
         GitHubUserProfile(id: 1, login: "octocat")
     }
 
-    func fetchInstallations(accessToken: String) async throws -> [GitHubInstallationSummary] {
-        [
-            GitHubInstallationSummary(
-                id: 1,
-                accountLogin: "octo-org",
-                accountType: "Organization",
-                targetType: "Organization",
-                repositorySelection: "selected"
-            )
-        ]
-    }
-
-    func fetchRepositories(
-        for installationID: Int64,
-        accessToken: String
-    ) async throws -> [GitHubAccessibleRepositorySummary] {
+    func fetchAccessibleRepositories(accessToken: String) async throws -> [GitHubAccessibleRepositorySummary] {
         [
             GitHubAccessibleRepositorySummary(
                 id: 101,
-                installationID: installationID,
                 ownerLogin: "octo-org",
+                ownerType: "Organization",
                 name: "marketing-site",
                 fullName: "octo-org/marketing-site",
                 isPrivate: true,
@@ -33,8 +18,8 @@ struct DemoWorkflowRunFetcher: GitHubDataFetching {
             ),
             GitHubAccessibleRepositorySummary(
                 id: 102,
-                installationID: installationID,
                 ownerLogin: "octo-org",
+                ownerType: "Organization",
                 name: "dashboard",
                 fullName: "octo-org/dashboard",
                 isPrivate: true,
