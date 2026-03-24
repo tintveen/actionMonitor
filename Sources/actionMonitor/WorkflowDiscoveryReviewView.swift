@@ -12,7 +12,7 @@ struct WorkflowDiscoveryReviewView: View {
     let zeroSelectionAction: (() -> Void)?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             if let workflowDiscoveryMessage = store.workflowDiscoveryMessage {
                 DiscoveryInlineMessageView(
                     systemImage: "info.circle.fill",
@@ -25,30 +25,45 @@ struct WorkflowDiscoveryReviewView: View {
                 ProgressView("Discovering workflows…")
             } else if !store.canDiscoverWorkflows {
                 discoveryEmptyState(
-                    title: "Workflow discovery needs GitHub browser sign-in",
-                    description: "Connect GitHub with the browser flow to scan accessible repositories for workflows."
+                    title: "GitHub sign-in required",
+                    description: "Connect GitHub to scan repositories."
                 )
             } else if store.isLoadingGitHubAccess && store.accessibleRepositories.isEmpty {
                 ProgressView("Loading accessible repositories…")
             } else if store.accessibleRepositories.isEmpty {
                 discoveryEmptyState(
-                    title: "No accessible repositories found",
-                    description: "GitHub sign-in succeeded, but there are no repositories available yet. Some organizations may require OAuth app approval or an active SSO session."
+                    title: "No repositories found",
+                    description: "Nothing is available to scan yet."
                 )
             } else if !store.hasSelectedAccessibleRepositories {
                 discoveryEmptyState(
                     title: "Select repositories first",
-                    description: "Choose at least one repository before scanning for workflows.",
+                    description: "Choose at least one repository above.",
                     actionTitle: zeroSelectionActionTitle,
                     action: zeroSelectionAction
                 )
             } else if store.discoveredWorkflowSuggestions.isEmpty {
                 discoveryEmptyState(
                     title: "No workflows found",
-                    description: "No GitHub Actions workflows were found in the currently selected repositories."
+                    description: "Nothing matched in the selected repositories."
                 )
             } else {
-                VStack(spacing: 10) {
+                HStack(spacing: 8) {
+                    Button("All New") {
+                        store.selectAllDiscoveredWorkflows()
+                    }
+                    .disabled(store.selectableDiscoveredWorkflowCount == 0)
+
+                    Button("Clear") {
+                        store.clearDiscoveredWorkflowSelection()
+                    }
+                    .disabled(!store.hasSelectedDiscoveredWorkflows)
+
+                    Spacer()
+                }
+                .font(.footnote)
+
+                VStack(spacing: 8) {
                     ForEach(store.discoveredWorkflowSuggestions) { suggestion in
                         DiscoveredWorkflowRow(store: store, suggestion: suggestion)
                     }
@@ -56,7 +71,7 @@ struct WorkflowDiscoveryReviewView: View {
             }
 
             HStack(spacing: 12) {
-                Button("Rescan GitHub Workflows") {
+                Button("Scan Again") {
                     store.discoverWorkflows()
                 }
                 .disabled(!store.canDiscoverWorkflows || store.isDiscoveringWorkflows)
@@ -90,6 +105,7 @@ struct WorkflowDiscoveryReviewView: View {
                 .font(.headline)
 
             Text(description)
+                .font(.footnote)
                 .foregroundStyle(.secondary)
 
             if let actionTitle, let action {
@@ -100,11 +116,11 @@ struct WorkflowDiscoveryReviewView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color(nsColor: .windowBackgroundColor).opacity(0.72))
+                .fill(Color(nsColor: .windowBackgroundColor))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Color(nsColor: .separatorColor).opacity(0.5), lineWidth: 1)
+                .strokeBorder(Color(nsColor: .separatorColor).opacity(0.45), lineWidth: 1)
         )
     }
 }
@@ -114,61 +130,70 @@ private struct DiscoveredWorkflowRow: View {
     let suggestion: DiscoveredWorkflowSuggestion
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Toggle(
-                "",
-                isOn: Binding(
-                    get: { suggestion.isSelected },
-                    set: { isSelected in
-                        store.setDiscoveredWorkflowSelection(suggestion.id, isSelected: isSelected)
-                    }
+        Button {
+            store.toggleDiscoveredWorkflowSelection(suggestion.id)
+        } label: {
+            HStack(alignment: .top, spacing: 12) {
+                DiscoverySelectionIndicator(
+                    isSelected: suggestion.isSelected,
+                    isEnabled: suggestion.isSelectable
                 )
-            )
-            .labelsHidden()
-            .toggleStyle(.checkbox)
-            .disabled(!suggestion.isSelectable)
 
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(alignment: .center, spacing: 8) {
-                    Text(suggestion.displayName)
-                        .font(.subheadline.weight(.semibold))
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .center, spacing: 8) {
+                        Text(suggestion.displayName)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(suggestion.isSelectable ? .primary : .secondary)
 
-                    if let statusLabel = suggestion.statusLabel {
-                        Text(statusLabel)
-                            .font(.caption.weight(.semibold))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(
-                                Capsule(style: .continuous)
-                                    .fill(suggestion.isAlreadyMonitored ? Color.green.opacity(0.18) : Color.orange.opacity(0.18))
+                        if let statusLabel = suggestion.statusLabel {
+                            DiscoveryStatusPill(
+                                text: statusLabel,
+                                tint: suggestion.isAlreadyMonitored ? .green : .orange
                             )
+                        }
+                    }
+
+                    Text(suggestion.repoFullName)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+
+                    HStack(spacing: 8) {
+                        DiscoveryMetaPill(text: suggestion.branch)
+                        DiscoveryMetaPill(text: suggestion.workflowFile.workflowFileDisplayName)
                     }
                 }
 
-                Text(suggestion.repoFullName)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-
-                HStack(spacing: 12) {
-                    Label(suggestion.branch, systemImage: "arrow.triangle.branch")
-                    Label(suggestion.workflowFile, systemImage: "gearshape.2")
-                }
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
             }
-
-            Spacer(minLength: 0)
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(backgroundColor)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(borderColor, lineWidth: 1)
+            )
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color(nsColor: .windowBackgroundColor).opacity(0.72))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Color(nsColor: .separatorColor).opacity(0.5), lineWidth: 1)
-        )
+        .buttonStyle(.plain)
+        .disabled(!suggestion.isSelectable)
+    }
+
+    private var backgroundColor: Color {
+        if suggestion.isSelected && suggestion.isSelectable {
+            return Color.accentColor.opacity(0.10)
+        }
+
+        return Color(nsColor: .windowBackgroundColor)
+    }
+
+    private var borderColor: Color {
+        if suggestion.isSelected && suggestion.isSelectable {
+            return Color.accentColor.opacity(0.4)
+        }
+
+        return Color(nsColor: .separatorColor).opacity(0.45)
     }
 }
 
@@ -192,6 +217,59 @@ private struct DiscoveryInlineMessageView: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(tint.opacity(0.12))
         )
+    }
+}
+
+private struct DiscoveryMetaPill: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(Color(nsColor: .controlBackgroundColor))
+            )
+    }
+}
+
+private struct DiscoveryStatusPill: View {
+    let text: String
+    let tint: Color
+
+    var body: some View {
+        Text(text)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(tint)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(tint.opacity(0.14))
+            )
+    }
+}
+
+private struct DiscoverySelectionIndicator: View {
+    let isSelected: Bool
+    let isEnabled: Bool
+
+    var body: some View {
+        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(indicatorColor)
+    }
+
+    private var indicatorColor: Color {
+        if !isEnabled {
+            return .secondary.opacity(0.45)
+        }
+
+        return isSelected ? .accentColor : .secondary.opacity(0.7)
     }
 }
 #endif

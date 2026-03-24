@@ -188,6 +188,10 @@ final class StatusStore: ObservableObject {
         discoveredWorkflowSuggestions.filter { $0.isSelectable && $0.isSelected }.count
     }
 
+    var selectableDiscoveredWorkflowCount: Int {
+        discoveredWorkflowSuggestions.filter(\.isSelectable).count
+    }
+
     var showsPersonalAccessTokenFallback: Bool {
         allowsPersonalAccessTokenFallback
     }
@@ -619,6 +623,42 @@ final class StatusStore: ObservableObject {
         }
 
         discoveredWorkflowSuggestions[index].isSelected = isSelected
+    }
+
+    func toggleDiscoveredWorkflowSelection(_ suggestionID: String) {
+        guard let suggestion = discoveredWorkflowSuggestions.first(where: { $0.id == suggestionID }) else {
+            return
+        }
+
+        setDiscoveredWorkflowSelection(suggestionID, isSelected: !suggestion.isSelected)
+    }
+
+    func selectAllDiscoveredWorkflows() {
+        guard !discoveredWorkflowSuggestions.isEmpty else {
+            return
+        }
+
+        discoveredWorkflowSuggestions = discoveredWorkflowSuggestions.map { suggestion in
+            var updatedSuggestion = suggestion
+            if updatedSuggestion.isSelectable {
+                updatedSuggestion.isSelected = true
+            }
+            return updatedSuggestion
+        }
+    }
+
+    func clearDiscoveredWorkflowSelection() {
+        guard !discoveredWorkflowSuggestions.isEmpty else {
+            return
+        }
+
+        discoveredWorkflowSuggestions = discoveredWorkflowSuggestions.map { suggestion in
+            var updatedSuggestion = suggestion
+            if updatedSuggestion.isSelectable {
+                updatedSuggestion.isSelected = false
+            }
+            return updatedSuggestion
+        }
     }
 
     func addSelectedDiscoveredWorkflows() throws {

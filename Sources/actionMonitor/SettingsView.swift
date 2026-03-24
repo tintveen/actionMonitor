@@ -18,25 +18,16 @@ struct SettingsView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 18) {
                 workflowsSection
                 authSection
                 dangerZoneSection
             }
             .disabled(store.isResetting)
-            .padding(24)
+            .padding(20)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(
-            LinearGradient(
-                colors: [
-                    Color(nsColor: .windowBackgroundColor),
-                    Color(nsColor: .underPageBackgroundColor),
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        )
+        .background(Color(nsColor: .underPageBackgroundColor))
         .sheet(isPresented: $isEditorPresented) {
             WorkflowEditorSheet(
                 title: editingWorkflowID == nil ? "Add Workflow" : "Edit Workflow",
@@ -60,14 +51,11 @@ struct SettingsView: View {
 
     private var workflowsSection: some View {
         SettingsSectionCard {
-            VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Monitored Workflows")
-                        .font(.system(size: 22, weight: .semibold, design: .rounded))
-
-                    Text("Add workflows manually or discover them from the repositories selected below. actionMonitor watches these in the saved order and keeps the list on this Mac.")
-                        .foregroundStyle(.secondary)
-                }
+            VStack(alignment: .leading, spacing: 14) {
+                SettingsSectionHeader(
+                    title: "Workflows",
+                    detail: store.workflows.isEmpty ? "None added" : "\(store.workflows.count) added"
+                )
 
                 if let workflowConfigurationMessage = store.workflowConfigurationMessage {
                     InlineMessageView(
@@ -88,7 +76,7 @@ struct SettingsView: View {
                 if store.workflows.isEmpty {
                     EmptySettingsState(openEditor: openAddWorkflowEditor)
                 } else {
-                    VStack(spacing: 12) {
+                    VStack(spacing: 10) {
                         ForEach(Array(store.workflows.enumerated()), id: \.element.id) { index, workflow in
                             WorkflowRow(
                                 workflow: workflow,
@@ -103,18 +91,18 @@ struct SettingsView: View {
                     }
                 }
 
-                HStack {
+                HStack(spacing: 8) {
                     Button {
                         openAddWorkflowEditor()
                     } label: {
-                        Label("Add Workflow", systemImage: "plus")
+                        Label("Add", systemImage: "plus")
                     }
                     .keyboardShortcut("n")
 
                     Button {
                         store.discoverWorkflows()
                     } label: {
-                        Label("Discover Workflows", systemImage: "sparkles.rectangle.stack")
+                        Label("Discover", systemImage: "sparkles")
                     }
                     .disabled(!store.canDiscoverWorkflows || store.isDiscoveringWorkflows)
 
@@ -128,17 +116,16 @@ struct SettingsView: View {
                     Divider()
 
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Discovery Review")
-                            .font(.headline)
-
-                        Text("Scan the repositories you selected, review the workflows actionMonitor found, and add the ones you want to monitor.")
-                            .foregroundStyle(.secondary)
+                        SettingsSubsectionHeader(
+                            title: "Discover",
+                            detail: workflowDiscoverySummary
+                        )
 
                         WorkflowDiscoveryReviewView(
                             store: store,
                             addButtonTitle: store.selectedDiscoveredWorkflowCount == 1
-                                ? "Add 1 Workflow"
-                                : "Add \(store.selectedDiscoveredWorkflowCount) Workflows",
+                                ? "Add 1"
+                                : "Add \(store.selectedDiscoveredWorkflowCount)",
                             onAddSelected: addDiscoveredWorkflows,
                             manualActionTitle: nil,
                             manualAction: nil,
@@ -153,14 +140,11 @@ struct SettingsView: View {
 
     private var authSection: some View {
         SettingsSectionCard {
-            VStack(alignment: .leading, spacing: 18) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("GitHub Repositories")
-                        .font(.system(size: 22, weight: .semibold, design: .rounded))
-
-                    Text("Sign in with GitHub in your browser, then choose which accessible repositories actionMonitor is allowed to monitor on this Mac.")
-                        .foregroundStyle(.secondary)
-                }
+            VStack(alignment: .leading, spacing: 14) {
+                SettingsSectionHeader(
+                    title: "GitHub",
+                    detail: authSummaryText
+                )
 
                 if let configurationMessage = store.gitHubSignInConfigurationMessage {
                     InlineMessageView(
@@ -195,14 +179,11 @@ struct SettingsView: View {
 
     private var dangerZoneSection: some View {
         SettingsSectionCard {
-            VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Danger Zone")
-                        .font(.system(size: 22, weight: .semibold, design: .rounded))
-
-                    Text("Reset actionMonitor to a fresh-install state on this Mac. This removes monitored workflows, clears saved GitHub credentials, and wipes onboarding/setup progress.")
-                        .foregroundStyle(.secondary)
-                }
+            VStack(alignment: .leading, spacing: 14) {
+                SettingsSectionHeader(
+                    title: "Reset",
+                    detail: "Clear local app data"
+                )
 
                 if let resetMessage = store.resetMessage {
                     InlineMessageView(
@@ -235,8 +216,8 @@ struct SettingsView: View {
         switch store.authState {
         case .signedOut:
             authCallToActionCard(
-                title: "No GitHub session saved",
-                description: "Browser sign-in is the recommended way to connect GitHub for private repositories and reliable polling."
+                title: "No GitHub session",
+                description: "Browser sign-in is the simplest setup."
             )
         case .authError:
             VStack(alignment: .leading, spacing: 12) {
@@ -249,8 +230,8 @@ struct SettingsView: View {
                 }
 
                 authCallToActionCard(
-                    title: "GitHub sign-in needs attention",
-                    description: "Start browser sign-in again to restore your saved GitHub session."
+                    title: "Sign-in needs attention",
+                    description: "Start the browser flow again to restore access."
                 )
             }
         case .signingInBrowser(let context):
@@ -267,7 +248,7 @@ struct SettingsView: View {
             CredentialSummaryCard(
                 summary: summary,
                 title: summary.login.map { "@\($0)" } ?? "GitHub connected",
-                subtitle: "Signed in with the GitHub OAuth browser flow.",
+                subtitle: "Connected with browser sign-in.",
                 primaryButtonTitle: "Sign In Again",
                 primaryAction: {
                     store.beginGitHubSignIn()
@@ -282,9 +263,9 @@ struct SettingsView: View {
         case .signedInPersonalAccessToken(let summary):
             CredentialSummaryCard(
                 summary: summary,
-                title: "Personal access token saved",
-                subtitle: "GitHub requests are authenticated with a manually managed token stored in Keychain.",
-                primaryButtonTitle: "Switch to Browser Sign-In",
+                title: "Token saved",
+                subtitle: "Requests are authenticated with a personal access token.",
+                primaryButtonTitle: "Use Browser Sign-In",
                 primaryAction: {
                     store.beginGitHubSignIn()
                 },
@@ -299,15 +280,14 @@ struct SettingsView: View {
     }
 
     private var repositoryAccessSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Accessible Repositories")
-                        .font(.headline)
-
-                    Text("These come from `GET /user/repos` and reflect the repositories your current GitHub session can access.")
-                        .foregroundStyle(.secondary)
-                }
+                SettingsSubsectionHeader(
+                    title: "Repositories",
+                    detail: store.accessibleRepositories.isEmpty
+                        ? "None loaded"
+                        : "\(store.selectedAccessibleRepositories.count) of \(store.accessibleRepositories.count) selected"
+                )
 
                 Spacer()
 
@@ -318,18 +298,16 @@ struct SettingsView: View {
             }
 
             if store.accessibleRepositories.isEmpty {
-                Text(store.isLoadingGitHubAccess
-                     ? "Loading accessible repositories…"
-                     : "No accessible repositories found yet. Some organizations may require OAuth app approval or an active SSO session even after sign-in.")
+                Text(store.isLoadingGitHubAccess ? "Loading repositories…" : "No repositories available.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             } else {
-                HStack(spacing: 12) {
-                    Button("Select All") {
+                HStack(spacing: 8) {
+                    Button("All") {
                         store.selectAllAccessibleRepositories()
                     }
 
-                    Button("Clear All") {
+                    Button("Clear") {
                         store.clearAccessibleRepositorySelection()
                     }
 
@@ -339,25 +317,17 @@ struct SettingsView: View {
 
                     Spacer()
                 }
+                .font(.footnote)
 
-                VStack(spacing: 10) {
+                VStack(spacing: 8) {
                     ForEach(store.accessibleRepositories) { repository in
-                        Toggle(isOn: Binding(
-                            get: { store.isRepositorySelected(repository.id) },
-                            set: { isSelected in
-                                store.setRepositorySelection(repository.id, isSelected: isSelected)
+                        RepositorySelectionRow(
+                            repository: repository,
+                            isSelected: store.isRepositorySelected(repository.id),
+                            action: {
+                                store.toggleRepositorySelection(repository.id)
                             }
-                        )) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(repository.fullName)
-                                    .font(.subheadline.weight(.semibold))
-
-                                Text(repository.defaultBranch.map { "Default branch: \($0)" } ?? "Default branch unavailable")
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        .toggleStyle(.checkbox)
+                        )
                     }
                 }
             }
@@ -370,6 +340,7 @@ struct SettingsView: View {
                 .font(.headline)
 
             Text(description)
+                .font(.footnote)
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 12) {
@@ -383,36 +354,35 @@ struct SettingsView: View {
                 Spacer()
             }
         }
-        .padding(18)
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color(nsColor: .windowBackgroundColor).opacity(0.72))
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color(nsColor: .windowBackgroundColor))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color(nsColor: .separatorColor).opacity(0.5), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Color(nsColor: .separatorColor).opacity(0.45), lineWidth: 1)
         )
     }
 
     private var personalAccessTokenSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Personal Access Token Fallback")
-                .font(.headline)
-
-            Text("Use this only if you want manual token management or browser sign-in is unavailable. Saving a token here replaces the current saved credential.")
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 10) {
+            SettingsSubsectionHeader(
+                title: "Token",
+                detail: store.hasStoredPersonalAccessToken ? "Saved in Keychain" : "Optional fallback"
+            )
 
             SecureField("GitHub personal access token", text: $tokenInput)
                 .textFieldStyle(.roundedBorder)
 
             Text(store.hasStoredPersonalAccessToken
-                 ? "A personal access token is currently saved in Keychain."
-                 : "Public repositories can work without authentication, but private repositories and better rate-limit behavior need GitHub sign-in or a token.")
+                 ? "Replacing it updates the saved token."
+                 : "Useful only when browser sign-in is unavailable.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
 
-            HStack(spacing: 12) {
+            HStack(spacing: 8) {
                 Button(store.hasStoredPersonalAccessToken ? "Save New Token" : "Save Token") {
                     let token = tokenInput
                     tokenInput = ""
@@ -526,6 +496,33 @@ struct SettingsView: View {
 
         return message
     }
+
+    private var workflowDiscoverySummary: String {
+        if store.isDiscoveringWorkflows {
+            return "Scanning…"
+        }
+
+        if store.discoveredWorkflowSuggestions.isEmpty {
+            return "Choose from GitHub"
+        }
+
+        return "\(store.selectedDiscoveredWorkflowCount) of \(store.selectableDiscoveredWorkflowCount) selected"
+    }
+
+    private var authSummaryText: String {
+        switch store.authState {
+        case .signedOut:
+            return "Not connected"
+        case .authError:
+            return "Needs attention"
+        case .signingInBrowser:
+            return "Signing in…"
+        case .signedInOAuthApp(let summary):
+            return summary.login.map { "@\($0)" } ?? "Connected"
+        case .signedInPersonalAccessToken:
+            return "Token saved"
+        }
+    }
 }
 
 private struct SettingsSectionCard<Content: View>: View {
@@ -535,16 +532,52 @@ private struct SettingsSectionCard<Content: View>: View {
         VStack(alignment: .leading, spacing: 0) {
             content
         }
-        .padding(20)
+        .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color(nsColor: .controlBackgroundColor))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color(nsColor: .separatorColor).opacity(0.7), lineWidth: 1)
         )
+    }
+}
+
+private struct SettingsSectionHeader: View {
+    let title: String
+    let detail: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(title)
+                .font(.system(size: 20, weight: .semibold, design: .rounded))
+
+            Text(detail)
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(.secondary)
+
+            Spacer()
+        }
+    }
+}
+
+private struct SettingsSubsectionHeader: View {
+    let title: String
+    let detail: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(title)
+                .font(.headline)
+
+            Text(detail)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            Spacer()
+        }
     }
 }
 
@@ -564,25 +597,24 @@ private struct CredentialSummaryCard: View {
                 .font(.headline)
 
             Text(subtitle)
+                .font(.footnote)
                 .foregroundStyle(.secondary)
 
-            HStack(spacing: 14) {
-                Label(summary.source.displayName, systemImage: iconName)
+            HStack(spacing: 8) {
+                WorkflowMetaPill(text: summary.source.displayName)
 
                 if summary.selectedRepositoryCount > 0 {
-                    Label("\(summary.selectedRepositoryCount) repos selected", systemImage: "checklist")
+                    WorkflowMetaPill(text: "\(summary.selectedRepositoryCount) repos")
                 }
 
                 if !summary.grantedScopes.isEmpty {
-                    Label(summary.grantedScopes.joined(separator: ", "), systemImage: "lock.shield")
+                    WorkflowMetaPill(text: summary.grantedScopes.joined(separator: ", "))
                 }
 
-                Label("Saved \(summary.savedAt.formatted(date: .abbreviated, time: .shortened))", systemImage: "clock")
+                WorkflowMetaPill(text: summary.savedAt.formatted(date: .abbreviated, time: .shortened))
             }
-            .font(.footnote)
-            .foregroundStyle(.secondary)
 
-            HStack(spacing: 12) {
+            HStack(spacing: 8) {
                 Button(primaryButtonTitle, action: primaryAction)
                     .disabled(primaryActionDisabled)
 
@@ -591,25 +623,16 @@ private struct CredentialSummaryCard: View {
                 Spacer()
             }
         }
-        .padding(18)
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color(nsColor: .windowBackgroundColor).opacity(0.72))
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color(nsColor: .windowBackgroundColor))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color(nsColor: .separatorColor).opacity(0.5), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Color(nsColor: .separatorColor).opacity(0.45), lineWidth: 1)
         )
-    }
-
-    private var iconName: String {
-        switch summary.source {
-        case .oauthBrowser:
-            return "safari"
-        case .personalAccessToken:
-            return "key.fill"
-        }
     }
 }
 
@@ -619,11 +642,12 @@ private struct BrowserSignInCard: View {
     let cancelSignIn: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             Text("Finish GitHub sign-in in your browser")
                 .font(.headline)
 
-            Text("actionMonitor already opened the browser. Once GitHub redirects back, the app will save your access automatically.")
+            Text("The browser is already open. actionMonitor will finish setup when GitHub redirects back.")
+                .font(.footnote)
                 .foregroundStyle(.secondary)
 
             Text(context.authorizationURL.absoluteString)
@@ -635,21 +659,21 @@ private struct BrowserSignInCard: View {
                 .font(.footnote)
                 .foregroundStyle(.secondary)
 
-            HStack(spacing: 12) {
+            HStack(spacing: 8) {
                 Button("Open Browser Again", action: reopenBrowser)
                 Button("Cancel", action: cancelSignIn)
                 Spacer()
             }
         }
-        .padding(18)
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color(nsColor: .windowBackgroundColor).opacity(0.72))
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color(nsColor: .windowBackgroundColor))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color(nsColor: .separatorColor).opacity(0.5), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Color(nsColor: .separatorColor).opacity(0.45), lineWidth: 1)
         )
     }
 }
@@ -703,28 +727,20 @@ private struct WorkflowRow: View {
                 .buttonStyle(.borderless)
             }
 
-            HStack(spacing: 14) {
-                Label(workflow.branch, systemImage: "arrow.triangle.branch")
-                Label(workflow.workflowFile, systemImage: "gearshape.2")
-            }
-            .font(.footnote)
-            .foregroundStyle(.secondary)
-
-            if let siteURL = workflow.siteURL {
-                Text(siteURL.absoluteString)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                WorkflowMetaPill(text: workflow.branch)
+                WorkflowMetaPill(text: workflow.workflowFile.workflowFileDisplayName)
             }
         }
-        .padding(14)
+        .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color(nsColor: .windowBackgroundColor).opacity(0.72))
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(nsColor: .windowBackgroundColor))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Color(nsColor: .separatorColor).opacity(0.5), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color(nsColor: .separatorColor).opacity(0.45), lineWidth: 1)
         )
     }
 }
@@ -733,28 +749,29 @@ private struct EmptySettingsState: View {
     let openEditor: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("No workflows configured yet.")
+        VStack(alignment: .leading, spacing: 8) {
+            Text("No workflows yet.")
                 .font(.headline)
 
-            Text("Add your first workflow to start monitoring GitHub Actions from the menu bar.")
+            Text("Add one manually or pull it in from GitHub discovery.")
+                .font(.footnote)
                 .foregroundStyle(.secondary)
 
             Button {
                 openEditor()
             } label: {
-                Label("Add Your First Workflow", systemImage: "plus.circle.fill")
+                Label("Add First Workflow", systemImage: "plus")
             }
         }
-        .padding(18)
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color(nsColor: .windowBackgroundColor).opacity(0.72))
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color(nsColor: .windowBackgroundColor))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color(nsColor: .separatorColor).opacity(0.5), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Color(nsColor: .separatorColor).opacity(0.45), lineWidth: 1)
         )
     }
 }
@@ -769,9 +786,10 @@ private struct WorkflowEditorSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(title)
-                .font(.system(size: 24, weight: .semibold, design: .rounded))
+                .font(.system(size: 22, weight: .semibold, design: .rounded))
 
-            Text("Use the workflow file name or path exactly as it appears in the repository. Display name is optional; if left blank, the repository name will be used.")
+            Text("Display name is optional.")
+                .font(.footnote)
                 .foregroundStyle(.secondary)
 
             WorkflowTextField(title: "Display Name", placeholder: "Customer Dashboard", text: $draft.displayName)
@@ -800,16 +818,7 @@ private struct WorkflowEditorSheet: View {
         }
         .padding(24)
         .frame(width: 520)
-        .background(
-            LinearGradient(
-                colors: [
-                    Color(nsColor: .windowBackgroundColor),
-                    Color(nsColor: .underPageBackgroundColor),
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        )
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 }
 
@@ -826,6 +835,86 @@ private struct WorkflowTextField: View {
             TextField(placeholder, text: $text)
                 .textFieldStyle(.roundedBorder)
         }
+    }
+}
+
+private struct RepositorySelectionRow: View {
+    let repository: GitHubAccessibleRepositorySummary
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                SettingsSelectionIndicator(isSelected: isSelected, isEnabled: true)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(repository.fullName)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+
+                    Text(repository.defaultBranch ?? "No default branch")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(isSelected
+                          ? Color.accentColor.opacity(0.10)
+                          : Color(nsColor: .windowBackgroundColor))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(
+                        isSelected
+                            ? Color.accentColor.opacity(0.4)
+                            : Color(nsColor: .separatorColor).opacity(0.45),
+                        lineWidth: 1
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct WorkflowMetaPill: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(Color(nsColor: .controlBackgroundColor))
+            )
+    }
+}
+
+private struct SettingsSelectionIndicator: View {
+    let isSelected: Bool
+    let isEnabled: Bool
+
+    var body: some View {
+        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(indicatorColor)
+    }
+
+    private var indicatorColor: Color {
+        if !isEnabled {
+            return .secondary.opacity(0.45)
+        }
+
+        return isSelected ? .accentColor : .secondary.opacity(0.7)
     }
 }
 

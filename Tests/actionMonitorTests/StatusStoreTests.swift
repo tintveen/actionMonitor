@@ -372,6 +372,61 @@ final class StatusStoreTests: XCTestCase {
         XCTAssertNil(store.workflowDiscoveryMessage)
     }
 
+    func testDiscoveredWorkflowSelectionBulkActionsOnlyAffectSelectableSuggestions() async {
+        let repository = accessibleRepository()
+        let existingWorkflow = sampleWorkflow(
+            displayName: "Deploy",
+            owner: repository.ownerLogin,
+            repo: repository.name,
+            branch: repository.defaultBranch ?? "main",
+            workflowID: 201,
+            workflowFile: ".github/workflows/deploy.yml"
+        )
+        let store = StatusStore(
+            workflowStore: InMemoryMonitoredWorkflowStore(initialWorkflows: [existingWorkflow]),
+            client: TestGitHubDataClient(
+                accessibleRepositories: [repository],
+                workflowsByRepository: [
+                    "octo-org/dashboard": [
+                        GitHubWorkflowSummary(id: 201, name: "Deploy", path: ".github/workflows/deploy.yml", state: "active"),
+                        GitHubWorkflowSummary(id: 202, name: "Nightly", path: ".github/workflows/nightly.yml", state: "disabled_manually"),
+                    ]
+                ]
+            ),
+            appSetupStore: TestAppSetupStore(didCompleteOnboarding: false),
+            settingsPresenter: TestSettingsPresenter(),
+            authManager: TestGitHubAuthManager(
+                configuration: configuredOAuth(),
+                session: githubOAuthSession(selectedRepositoryIDs: [repository.id])
+            ),
+            promptsForIncompleteSetup: false,
+            allowsPersonalAccessTokenFallback: true
+        )
+
+        store.beginOnboarding()
+        store.continueFromSignInStep()
+        store.reloadGitHubAccess()
+
+        await waitForCondition {
+            !store.isDiscoveringWorkflows && store.discoveredWorkflowSuggestions.count == 2
+        }
+
+        XCTAssertEqual(store.selectableDiscoveredWorkflowCount, 1)
+
+        store.selectAllDiscoveredWorkflows()
+        XCTAssertEqual(
+            store.discoveredWorkflowSuggestions.first(where: { $0.workflowID == 202 })?.isSelected,
+            true
+        )
+        XCTAssertEqual(
+            store.discoveredWorkflowSuggestions.first(where: { $0.workflowID == 201 })?.isSelected,
+            false
+        )
+
+        store.clearDiscoveredWorkflowSelection()
+        XCTAssertFalse(store.hasSelectedDiscoveredWorkflows)
+    }
+
     func testDiscoverWorkflowsShowsSSOGuidanceForBlockedOrganizationRepo() async {
         let repository = accessibleRepository()
         let store = StatusStore(
