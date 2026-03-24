@@ -288,7 +288,7 @@ struct GitHubClient: GitHubDataFetching {
 
     func latestRunRequest(for workflow: MonitoredWorkflow, token: String?) throws -> URLRequest {
         var components = URLComponents(
-            url: baseURL.appending(path: "/repos/\(workflow.owner)/\(workflow.repo)/actions/workflows/\(workflow.workflowFile)/runs"),
+            url: baseURL.appending(path: "/repos/\(workflow.owner)/\(workflow.repo)/actions/workflows/\(workflow.workflowReference)/runs"),
             resolvingAgainstBaseURL: false
         )
         components?.queryItems = [

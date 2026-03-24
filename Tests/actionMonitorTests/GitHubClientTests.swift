@@ -25,6 +25,24 @@ final class GitHubClientTests: XCTestCase {
         XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer test-token")
     }
 
+    func testLatestRunRequestUsesWorkflowIDWhenAvailable() throws {
+        let client = GitHubClient(baseURL: URL(string: "https://api.github.com")!)
+        let discoveredWorkflow = MonitoredWorkflow(
+            id: UUID(uuidString: "F0A62E52-0AF4-4E16-85F8-E7BC06EA4414")!,
+            displayName: "Discovered",
+            owner: "tintveen",
+            repo: "example.com",
+            branch: "main",
+            workflowID: 987654,
+            workflowFile: ".github/workflows/deploy.yml",
+            siteURL: nil
+        )
+
+        let request = try client.latestRunRequest(for: discoveredWorkflow, token: "test-token")
+
+        XCTAssertEqual(request.url?.absoluteString, "https://api.github.com/repos/tintveen/example.com/actions/workflows/987654/runs?branch=main&event=push&per_page=1")
+    }
+
     func testRunningStatusesMapToRunning() {
         let statuses = ["queued", "in_progress", "requested", "pending", "waiting"]
 

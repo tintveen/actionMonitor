@@ -54,7 +54,7 @@ struct SettingsView: View {
                     Text("Monitored Workflows")
                         .font(.system(size: 22, weight: .semibold, design: .rounded))
 
-                    Text("Add one GitHub Actions workflow per item. actionMonitor watches these in the saved order and keeps the list on this Mac.")
+                    Text("Add workflows manually or discover them from the repositories selected in GitHub Access. actionMonitor watches these in the saved order and keeps the list on this Mac.")
                         .foregroundStyle(.secondary)
                 }
 
@@ -100,7 +100,41 @@ struct SettingsView: View {
                     }
                     .keyboardShortcut("n")
 
+                    Button {
+                        store.discoverWorkflows()
+                    } label: {
+                        Label("Discover Workflows", systemImage: "sparkles.rectangle.stack")
+                    }
+                    .disabled(!store.canDiscoverWorkflows || store.isDiscoveringWorkflows)
+
                     Spacer()
+                }
+
+                if store.canDiscoverWorkflows ||
+                    store.isDiscoveringWorkflows ||
+                    store.workflowDiscoveryMessage != nil ||
+                    !store.discoveredWorkflowSuggestions.isEmpty {
+                    Divider()
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Discovery Review")
+                            .font(.headline)
+
+                        Text("Scan the repositories selected in GitHub Access, review the workflows actionMonitor found, and add the ones you want to monitor.")
+                            .foregroundStyle(.secondary)
+
+                        WorkflowDiscoveryReviewView(
+                            store: store,
+                            addButtonTitle: store.selectedDiscoveredWorkflowCount == 1
+                                ? "Add 1 Workflow"
+                                : "Add \(store.selectedDiscoveredWorkflowCount) Workflows",
+                            onAddSelected: addDiscoveredWorkflows,
+                            manualActionTitle: nil,
+                            manualAction: nil,
+                            zeroSelectionActionTitle: nil,
+                            zeroSelectionAction: nil
+                        )
+                    }
                 }
             }
         }
@@ -376,6 +410,15 @@ struct SettingsView: View {
             isEditorPresented = false
         } catch {
             workflowEditorMessage = error.localizedDescription
+        }
+    }
+
+    private func addDiscoveredWorkflows() {
+        do {
+            try store.addSelectedDiscoveredWorkflows()
+            workflowActionMessage = nil
+        } catch {
+            workflowActionMessage = error.localizedDescription
         }
     }
 

@@ -3,6 +3,7 @@ import Foundation
 @MainActor
 protocol SettingsPresenting: Sendable {
     func showSettings()
+    func showSettingsDirectly()
     func showOnboarding(startingAt step: OnboardingStep)
     func dismissOnboarding()
     func openExternalURL(_ url: URL)
@@ -10,6 +11,7 @@ protocol SettingsPresenting: Sendable {
 
 struct NoOpSettingsPresenter: SettingsPresenting {
     func showSettings() {}
+    func showSettingsDirectly() {}
     func showOnboarding(startingAt step: OnboardingStep) {}
     func dismissOnboarding() {}
     func openExternalURL(_ url: URL) {}
@@ -33,6 +35,14 @@ final class SettingsWindowController: NSObject, SettingsPresenting {
 
         if store.shouldRouteSettingsToOnboarding {
             showOnboarding(startingAt: store.onboardingStep ?? .welcome)
+            return
+        }
+
+        showSettingsDirectly()
+    }
+
+    func showSettingsDirectly() {
+        guard let store else {
             return
         }
 

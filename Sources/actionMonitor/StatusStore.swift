@@ -43,6 +43,9 @@ final class StatusStore: ObservableObject {
     @Published private(set) var installations: [GitHubInstallationSummary]
     @Published private(set) var accessibleRepositories: [GitHubAccessibleRepositorySummary]
     @Published private(set) var isLoadingGitHubAccess = false
+    @Published private(set) var discoveredWorkflowSuggestions: [DiscoveredWorkflowSuggestion]
+    @Published private(set) var isDiscoveringWorkflows = false
+    @Published private(set) var workflowDiscoveryMessage: String?
 
     private let workflowStore: any MonitoredWorkflowStore
     private let client: any GitHubDataFetching
@@ -59,10 +62,12 @@ final class StatusStore: ObservableObject {
     private var refreshTask: Task<Void, Never>?
     private var signInTask: Task<Void, Never>?
     private var accessDirectoryTask: Task<Void, Never>?
+    private var workflowDiscoveryTask: Task<Void, Never>?
     private var didStart = false
     private var hasPromptedForAuthFailure = false
     private var pendingRefresh = false
     private var workflowsVersion = 0
+    private var sessionIdentity: EffectiveGitHubSessionIdentity?
 
     init(
         workflows initialWorkflows: [MonitoredWorkflow]? = nil,
@@ -85,6 +90,7 @@ final class StatusStore: ObservableObject {
         self.allowsPersonalAccessTokenFallback = allowsPersonalAccessTokenFallback
         installations = []
         accessibleRepositories = []
+        discoveredWorkflowSuggestions = []
 
         let loadedWorkflows: [MonitoredWorkflow]
         if let initialWorkflows {
@@ -173,6 +179,26 @@ final class StatusStore: ObservableObject {
         currentSession?.source == .githubAppBrowser
     }
 
+    var selectedAccessibleRepositories: [GitHubAccessibleRepositorySummary] {
+        accessibleRepositories.filter { selectedRepositoryIDs.contains($0.id) }
+    }
+
+    var hasSelectedAccessibleRepositories: Bool {
+        !selectedAccessibleRepositories.isEmpty
+    }
+
+    var canDiscoverWorkflows: Bool {
+        supportsRepositorySelection && hasStoredCredential
+    }
+
+    var hasSelectedDiscoveredWorkflows: Bool {
+        discoveredWorkflowSuggestions.contains { $0.isSelectable && $0.isSelected }
+    }
+
+    var selectedDiscoveredWorkflowCount: Int {
+        discoveredWorkflowSuggestions.filter { $0.isSelectable && $0.isSelected }.count
+    }
+
     var showsPersonalAccessTokenFallback: Bool {
         allowsPersonalAccessTokenFallback
     }
@@ -245,6 +271,9 @@ final class StatusStore: ObservableObject {
 
     func continueFromSignInStep() {
         onboardingStep = .firstWorkflow
+        if supportsRepositorySelection {
+            discoverWorkflows()
+        }
     }
 
     func continueFromWorkflowStep() {
@@ -350,6 +379,7 @@ final class StatusStore: ObservableObject {
 
         do {
             cancelGitHubSignInIfNeeded()
+            resetWorkflowDiscoveryState()
 
             if trimmedToken.isEmpty {
                 try clearSavedSession(message: "Saved GitHub session removed.")
@@ -389,6 +419,7 @@ final class StatusStore: ObservableObject {
         guard supportsRepositorySelection else {
             installations = []
             accessibleRepositories = []
+            resetWorkflowDiscoveryState()
             return
         }
 
@@ -429,6 +460,9 @@ final class StatusStore: ObservableObject {
                 self.installations = installations
                 self.accessibleRepositories = repositories
                 try self.normalizeRepositorySelection()
+                if self.onboardingStep == .firstWorkflow {
+                    self.discoverWorkflows()
+                }
             } catch {
                 self.credentialMessage = error.localizedDescription
             }
@@ -484,9 +518,115 @@ final class StatusStore: ObservableObject {
         var nextWorkflows = workflows
         nextWorkflows[index] = try draft.validated(
             existingWorkflows: workflows,
-            editingID: id
+            editingWorkflow: workflows[index]
         )
         try persistWorkflows(nextWorkflows)
+    }
+
+    func discoverWorkflows() {
+        workflowDiscoveryTask?.cancel()
+
+        guard supportsRepositorySelection else {
+            discoveredWorkflowSuggestions = []
+            workflowDiscoveryMessage = "Workflow discovery is available after GitHub browser sign-in."
+            isDiscoveringWorkflows = false
+            return
+        }
+
+        guard let session = currentSession else {
+            discoveredWorkflowSuggestions = []
+            workflowDiscoveryMessage = "Connect GitHub to discover workflows."
+            isDiscoveringWorkflows = false
+            return
+        }
+
+        let repositories = selectedAccessibleRepositories
+            .sorted { $0.fullName.localizedCaseInsensitiveCompare($1.fullName) == .orderedAscending }
+
+        guard !repositories.isEmpty else {
+            discoveredWorkflowSuggestions = []
+            workflowDiscoveryMessage = nil
+            isDiscoveringWorkflows = false
+            return
+        }
+
+        workflowDiscoveryMessage = nil
+        isDiscoveringWorkflows = true
+
+        workflowDiscoveryTask = Task { [weak self] in
+            guard let self else {
+                return
+            }
+
+            let scanResults = await self.scanWorkflows(
+                in: repositories,
+                accessToken: session.accessToken
+            )
+
+            guard !Task.isCancelled else {
+                return
+            }
+
+            let failedScanCount = scanResults.filter(\.hasError).count
+            let suggestions = self.buildDiscoveredWorkflowSuggestions(from: scanResults)
+            self.discoveredWorkflowSuggestions = suggestions
+
+            if failedScanCount > 0 {
+                self.workflowDiscoveryMessage = "Scanned \(repositories.count) repos, \(failedScanCount) failed."
+            } else {
+                self.workflowDiscoveryMessage = nil
+            }
+
+            self.isDiscoveringWorkflows = false
+            self.workflowDiscoveryTask = nil
+        }
+    }
+
+    func setDiscoveredWorkflowSelection(_ suggestionID: String, isSelected: Bool) {
+        guard let index = discoveredWorkflowSuggestions.firstIndex(where: { $0.id == suggestionID }) else {
+            return
+        }
+
+        guard discoveredWorkflowSuggestions[index].isSelectable else {
+            return
+        }
+
+        discoveredWorkflowSuggestions[index].isSelected = isSelected
+    }
+
+    func addSelectedDiscoveredWorkflows() throws {
+        let selectedSuggestions = discoveredWorkflowSuggestions
+            .filter { $0.isSelectable && $0.isSelected }
+
+        guard !selectedSuggestions.isEmpty else {
+            return
+        }
+
+        var nextWorkflows = workflows
+
+        for suggestion in selectedSuggestions {
+            let workflow = suggestion.asMonitoredWorkflow()
+            guard !nextWorkflows.contains(where: {
+                $0.matchesMonitor(
+                    owner: workflow.owner,
+                    repo: workflow.repo,
+                    branch: workflow.branch,
+                    workflowID: workflow.workflowID,
+                    workflowFile: workflow.workflowFile
+                )
+            }) else {
+                continue
+            }
+
+            nextWorkflows.append(workflow)
+        }
+
+        try persistWorkflows(nextWorkflows)
+        reconcileDiscoveredWorkflowSuggestions()
+    }
+
+    func showSettingsDirectly() {
+        windowPresenter.showSettingsDirectly()
     }
 
     func deleteWorkflow(id: UUID) throws {
@@ -527,6 +667,152 @@ final class StatusStore: ObservableObject {
         try persistWorkflows(nextWorkflows)
     }
 
+    private func scanWorkflows(
+        in repositories: [GitHubAccessibleRepositorySummary],
+        accessToken: String
+    ) async -> [WorkflowRepositoryScanResult] {
+        var scanResults: [WorkflowRepositoryScanResult] = []
+        let client = self.client
+
+        for repositoryBatch in repositories.chunked(into: 4) {
+            let batchResults = await withTaskGroup(of: WorkflowRepositoryScanResult.self) { group in
+                for repository in repositoryBatch {
+                    group.addTask {
+                        do {
+                            let workflows = try await client.fetchWorkflows(
+                                owner: repository.ownerLogin,
+                                repo: repository.name,
+                                accessToken: accessToken
+                            )
+                            return WorkflowRepositoryScanResult(
+                                repository: repository,
+                                workflows: workflows,
+                                errorMessage: nil
+                            )
+                        } catch {
+                            return WorkflowRepositoryScanResult(
+                                repository: repository,
+                                workflows: [],
+                                errorMessage: error.localizedDescription
+                            )
+                        }
+                    }
+                }
+
+                var results: [WorkflowRepositoryScanResult] = []
+                for await result in group {
+                    results.append(result)
+                }
+                return results
+            }
+
+            scanResults.append(contentsOf: batchResults)
+        }
+
+        return scanResults
+    }
+
+    private func buildDiscoveredWorkflowSuggestions(
+        from scanResults: [WorkflowRepositoryScanResult]
+    ) -> [DiscoveredWorkflowSuggestion] {
+        var suggestionsByIdentity: [MonitorIdentity: DiscoveredWorkflowSuggestion] = [:]
+
+        for scanResult in scanResults {
+            let branch = (scanResult.repository.defaultBranch ?? "main").normalizedMonitorBranchValue
+
+            for workflow in scanResult.workflows {
+                let monitorIdentity = MonitorIdentity(
+                    owner: scanResult.repository.ownerLogin,
+                    repo: scanResult.repository.name,
+                    branch: branch,
+                    workflowID: workflow.id,
+                    workflowFile: workflow.path
+                )
+                let suggestion = DiscoveredWorkflowSuggestion(
+                    owner: scanResult.repository.ownerLogin,
+                    repo: scanResult.repository.name,
+                    repoFullName: scanResult.repository.fullName,
+                    branch: branch,
+                    workflowID: workflow.id,
+                    workflowName: workflow.name,
+                    workflowFile: workflow.path.trimmedWorkflowValue,
+                    workflowState: workflow.state,
+                    isSelected: !workflows.contains(where: {
+                        $0.matchesMonitor(
+                            owner: scanResult.repository.ownerLogin,
+                            repo: scanResult.repository.name,
+                            branch: branch,
+                            workflowID: workflow.id,
+                            workflowFile: workflow.path
+                        )
+                    }) &&
+                        workflow.state.normalizedWorkflowValue == "active",
+                    isAlreadyMonitored: workflows.contains(where: {
+                        $0.matchesMonitor(
+                            owner: scanResult.repository.ownerLogin,
+                            repo: scanResult.repository.name,
+                            branch: branch,
+                            workflowID: workflow.id,
+                            workflowFile: workflow.path
+                        )
+                    })
+                )
+
+                if let existingSuggestion = suggestionsByIdentity[monitorIdentity] {
+                    let shouldReplaceExisting =
+                        suggestion.workflowID != nil && existingSuggestion.workflowID == nil
+                    if shouldReplaceExisting {
+                        suggestionsByIdentity[monitorIdentity] = suggestion
+                    }
+                } else {
+                    suggestionsByIdentity[monitorIdentity] = suggestion
+                }
+            }
+        }
+
+        return suggestionsByIdentity.values.sorted {
+            if $0.repoFullName.localizedCaseInsensitiveCompare($1.repoFullName) != .orderedSame {
+                return $0.repoFullName.localizedCaseInsensitiveCompare($1.repoFullName) == .orderedAscending
+            }
+
+            if $0.displayName.localizedCaseInsensitiveCompare($1.displayName) != .orderedSame {
+                return $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+            }
+
+            return $0.workflowFile.localizedCaseInsensitiveCompare($1.workflowFile) == .orderedAscending
+        }
+    }
+
+    private func reconcileDiscoveredWorkflowSuggestions() {
+        guard !discoveredWorkflowSuggestions.isEmpty else {
+            return
+        }
+
+        discoveredWorkflowSuggestions = discoveredWorkflowSuggestions.map { suggestion in
+            var updatedSuggestion = suggestion
+            let isAlreadyMonitored = workflows.contains {
+                $0.matchesMonitor(
+                    owner: suggestion.owner,
+                    repo: suggestion.repo,
+                    branch: suggestion.branch,
+                    workflowID: suggestion.workflowID,
+                    workflowFile: suggestion.workflowFile
+                )
+            }
+            updatedSuggestion.isAlreadyMonitored = isAlreadyMonitored
+            updatedSuggestion.isSelected = !isAlreadyMonitored && updatedSuggestion.isSelected
+            return updatedSuggestion
+        }
+    }
+
+    private func resetWorkflowDiscoveryState() {
+        workflowDiscoveryTask?.cancel()
+        workflowDiscoveryTask = nil
+        isDiscoveringWorkflows = false
+        discoveredWorkflowSuggestions = []
+        workflowDiscoveryMessage = nil
+    }
+
     private func beginRefreshLoop() {
         refreshLoopTask?.cancel()
         refreshLoopTask = Task { [weak self] in
@@ -552,6 +838,7 @@ final class StatusStore: ObservableObject {
 
         workflowsVersion += 1
         replaceWorkflows(with: nextWorkflows)
+        reconcileDiscoveredWorkflowSuggestions()
 
         if onboardingStep != nil,
            currentSession != nil,
@@ -571,10 +858,7 @@ final class StatusStore: ObservableObject {
         workflows = nextWorkflows
         states = nextWorkflows.map { workflow in
             guard let existingState = existingStates[workflow.id],
-                  existingState.workflow.owner == workflow.owner,
-                  existingState.workflow.repo == workflow.repo,
-                  existingState.workflow.branch == workflow.branch,
-                  existingState.workflow.workflowFile == workflow.workflowFile else {
+                  existingState.workflow.monitorIdentity == workflow.monitorIdentity else {
                 return DeployState.placeholder(for: workflow)
             }
 
@@ -727,10 +1011,14 @@ final class StatusStore: ObservableObject {
         )
 
         do {
+            let previousRepositoryIDs = selectedRepositoryIDs
             try updateRepositorySelection(
                 installationIDs: installationIDs,
                 repositoryIDs: repositoryIDs
             )
+            if previousRepositoryIDs != repositoryIDs {
+                resetWorkflowDiscoveryState()
+            }
             refreshNow()
         } catch {
             credentialMessage = error.localizedDescription
@@ -748,7 +1036,7 @@ final class StatusStore: ObservableObject {
         synchronizeSession(updatedSession, successMessage: nil)
     }
 
-    private func isWorkflowSelectedForMonitoring(_ workflow: MonitoredWorkflow) -> Bool {
+private func isWorkflowSelectedForMonitoring(_ workflow: MonitoredWorkflow) -> Bool {
         guard !selectedRepositoryIDs.isEmpty else {
             return true
         }
@@ -764,7 +1052,13 @@ final class StatusStore: ObservableObject {
         _ session: GitHubAppSession?,
         successMessage: String?
     ) {
+        let nextSessionIdentity = session.map { EffectiveGitHubSessionIdentity(session: $0) }
+        if sessionIdentity != nextSessionIdentity {
+            resetWorkflowDiscoveryState()
+        }
+
         currentSession = session
+        sessionIdentity = nextSessionIdentity
         authState = Self.authState(for: session)
         if let successMessage {
             credentialMessage = successMessage
@@ -773,16 +1067,19 @@ final class StatusStore: ObservableObject {
         if !supportsRepositorySelection {
             installations = []
             accessibleRepositories = []
+            resetWorkflowDiscoveryState()
         }
     }
 
     private func clearSavedSession(message: String) throws {
         try authManager.disconnect()
         currentSession = nil
+        sessionIdentity = nil
         authState = .signedOut
         credentialMessage = message
         installations = []
         accessibleRepositories = []
+        resetWorkflowDiscoveryState()
     }
 
     private func restoreAuthStateFromCurrentSession(orError errorMessage: String? = nil) {
@@ -855,5 +1152,44 @@ final class StatusStore: ObservableObject {
         case .personalAccessToken:
             return .signedInPersonalAccessToken(session.summary)
         }
+    }
+}
+
+private struct WorkflowRepositoryScanResult: Sendable {
+    let repository: GitHubAccessibleRepositorySummary
+    let workflows: [GitHubWorkflowSummary]
+    let errorMessage: String?
+
+    var hasError: Bool {
+        errorMessage != nil
+    }
+}
+
+private struct EffectiveGitHubSessionIdentity: Equatable {
+    let source: GitHubSessionSource
+    let userID: Int64?
+    let login: String?
+
+    init(session: GitHubAppSession) {
+        source = session.source
+        userID = session.userID
+        login = session.login?.trimmedWorkflowValue
+    }
+}
+
+private extension Array {
+    func chunked(into size: Int) -> [[Element]] {
+        guard size > 0 else {
+            return [self]
+        }
+
+        var result: [[Element]] = []
+        var index = startIndex
+        while index < endIndex {
+            let nextIndex = Swift.min(index + size, endIndex)
+            result.append(Array(self[index..<nextIndex]))
+            index = nextIndex
+        }
+        return result
     }
 }

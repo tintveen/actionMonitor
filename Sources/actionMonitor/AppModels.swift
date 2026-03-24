@@ -6,6 +6,7 @@ struct MonitoredWorkflow: Identifiable, Hashable, Codable, Sendable {
     let owner: String
     let repo: String
     let branch: String
+    let workflowID: Int64?
     let workflowFile: String
     let siteURL: URL?
 
@@ -15,6 +16,7 @@ struct MonitoredWorkflow: Identifiable, Hashable, Codable, Sendable {
         owner: String,
         repo: String,
         branch: String,
+        workflowID: Int64? = nil,
         workflowFile: String,
         siteURL: URL?
     ) {
@@ -22,21 +24,82 @@ struct MonitoredWorkflow: Identifiable, Hashable, Codable, Sendable {
         self.displayName = displayName
         self.owner = owner
         self.repo = repo
-        self.branch = branch
+        self.branch = branch.normalizedMonitorBranchValue
+        self.workflowID = workflowID
         self.workflowFile = workflowFile
         self.siteURL = siteURL
     }
 
-    var workflowURL: URL {
-        URL(string: "https://github.com/\(owner)/\(repo)/actions/workflows/\(workflowFile)")!
+    var workflowReference: String {
+        workflowID.map(String.init) ?? workflowFile
     }
 
-    fileprivate var duplicateKey: MonitoredWorkflowDuplicateKey {
-        MonitoredWorkflowDuplicateKey(
+    var workflowURL: URL {
+        URL(string: "https://github.com/\(owner)/\(repo)/actions/workflows/\(workflowReference)")!
+    }
+
+    var workflowIdentity: WorkflowIdentity {
+        WorkflowIdentity(
+            owner: owner,
+            repo: repo,
+            workflowID: workflowID,
+            workflowFile: workflowFile
+        )
+    }
+
+    var monitorIdentity: MonitorIdentity {
+        MonitorIdentity(
             owner: owner,
             repo: repo,
             branch: branch,
+            workflowID: workflowID,
             workflowFile: workflowFile
+        )
+    }
+
+    func matchesMonitor(
+        owner: String,
+        repo: String,
+        branch: String,
+        workflowID: Int64?,
+        workflowFile: String
+    ) -> Bool {
+        guard self.owner.normalizedWorkflowValue == owner.normalizedWorkflowValue,
+              self.repo.normalizedWorkflowValue == repo.normalizedWorkflowValue,
+              self.branch.normalizedMonitorBranchValue == branch.normalizedMonitorBranchValue else {
+            return false
+        }
+
+        if let existingWorkflowID = self.workflowID,
+           let workflowID {
+            return existingWorkflowID == workflowID
+        }
+
+        return self.workflowFile.normalizedWorkflowValue == workflowFile.normalizedWorkflowValue
+    }
+
+    func preservingWorkflowID(
+        displayName: String,
+        owner: String,
+        repo: String,
+        branch: String,
+        workflowFile: String,
+        siteURL: URL?
+    ) -> MonitoredWorkflow {
+        let preservesWorkflowIdentity =
+            self.owner.normalizedWorkflowValue == owner.normalizedWorkflowValue &&
+            self.repo.normalizedWorkflowValue == repo.normalizedWorkflowValue &&
+            self.workflowFile.normalizedWorkflowValue == workflowFile.normalizedWorkflowValue
+
+        return MonitoredWorkflow(
+            id: id,
+            displayName: displayName,
+            owner: owner,
+            repo: repo,
+            branch: branch,
+            workflowID: preservesWorkflowIdentity ? workflowID : nil,
+            workflowFile: workflowFile,
+            siteURL: siteURL
         )
     }
 
@@ -47,6 +110,7 @@ struct MonitoredWorkflow: Identifiable, Hashable, Codable, Sendable {
             owner: "octo-org",
             repo: "marketing-site",
             branch: "main",
+            workflowID: 201,
             workflowFile: "deploy.yml",
             siteURL: URL(string: "https://example.com")
         ),
@@ -56,23 +120,39 @@ struct MonitoredWorkflow: Identifiable, Hashable, Codable, Sendable {
             owner: "octo-org",
             repo: "dashboard",
             branch: "release",
+            workflowID: 202,
             workflowFile: ".github/workflows/release.yml",
             siteURL: URL(string: "https://dashboard.example.com")
         ),
     ]
 }
 
-private struct MonitoredWorkflowDuplicateKey: Hashable {
+struct WorkflowIdentity: Hashable, Sendable {
     let owner: String
     let repo: String
-    let branch: String
+    let workflowID: Int64?
     let workflowFile: String
 
-    init(owner: String, repo: String, branch: String, workflowFile: String) {
+    init(owner: String, repo: String, workflowID: Int64?, workflowFile: String) {
         self.owner = owner.normalizedWorkflowValue
         self.repo = repo.normalizedWorkflowValue
-        self.branch = branch.normalizedWorkflowValue
-        self.workflowFile = workflowFile.normalizedWorkflowValue
+        self.workflowID = workflowID
+        self.workflowFile = workflowID == nil ? workflowFile.normalizedWorkflowValue : ""
+    }
+}
+
+struct MonitorIdentity: Hashable, Sendable {
+    let workflowIdentity: WorkflowIdentity
+    let branch: String
+
+    init(owner: String, repo: String, branch: String, workflowID: Int64?, workflowFile: String) {
+        workflowIdentity = WorkflowIdentity(
+            owner: owner,
+            repo: repo,
+            workflowID: workflowID,
+            workflowFile: workflowFile
+        )
+        self.branch = branch.normalizedMonitorBranchValue
     }
 }
 
@@ -113,11 +193,11 @@ struct MonitoredWorkflowDraft: Equatable, Sendable {
 
     func validated(
         existingWorkflows: [MonitoredWorkflow],
-        editingID: UUID? = nil
+        editingWorkflow: MonitoredWorkflow? = nil
     ) throws -> MonitoredWorkflow {
         let trimmedOwner = owner.trimmedWorkflowValue
         let trimmedRepo = repo.trimmedWorkflowValue
-        let trimmedBranch = branch.trimmedWorkflowValue
+        let normalizedBranch = branch.normalizedMonitorBranchValue
         let trimmedWorkflowFile = workflowFile.trimmedWorkflowValue
 
         guard !trimmedOwner.isEmpty else {
@@ -128,7 +208,7 @@ struct MonitoredWorkflowDraft: Equatable, Sendable {
             throw MonitoredWorkflowValidationError.repoRequired
         }
 
-        guard !trimmedBranch.isEmpty else {
+        guard !normalizedBranch.isEmpty else {
             throw MonitoredWorkflowValidationError.branchRequired
         }
 
@@ -136,15 +216,23 @@ struct MonitoredWorkflowDraft: Equatable, Sendable {
             throw MonitoredWorkflowValidationError.workflowFileRequired
         }
 
-        let duplicateKey = MonitoredWorkflowDuplicateKey(
-            owner: trimmedOwner,
-            repo: trimmedRepo,
-            branch: trimmedBranch,
-            workflowFile: trimmedWorkflowFile
-        )
+        let preservedWorkflowID = editingWorkflow.flatMap { workflow in
+            workflow.owner.normalizedWorkflowValue == trimmedOwner.normalizedWorkflowValue &&
+            workflow.repo.normalizedWorkflowValue == trimmedRepo.normalizedWorkflowValue &&
+            workflow.workflowFile.normalizedWorkflowValue == trimmedWorkflowFile.normalizedWorkflowValue
+                ? workflow.workflowID
+                : nil
+        }
 
         if existingWorkflows.contains(where: { workflow in
-            workflow.id != editingID && workflow.duplicateKey == duplicateKey
+            workflow.id != editingWorkflow?.id &&
+            workflow.matchesMonitor(
+                owner: trimmedOwner,
+                repo: trimmedRepo,
+                branch: normalizedBranch,
+                workflowID: preservedWorkflowID,
+                workflowFile: trimmedWorkflowFile
+            )
         }) {
             throw MonitoredWorkflowValidationError.duplicateWorkflow
         }
@@ -163,12 +251,22 @@ struct MonitoredWorkflowDraft: Equatable, Sendable {
             throw MonitoredWorkflowValidationError.invalidSiteURL
         }
 
+        if let editingWorkflow {
+            return editingWorkflow.preservingWorkflowID(
+                displayName: trimmedDisplayName.isEmpty ? trimmedRepo : trimmedDisplayName,
+                owner: trimmedOwner,
+                repo: trimmedRepo,
+                branch: normalizedBranch,
+                workflowFile: trimmedWorkflowFile,
+                siteURL: resolvedSiteURL
+            )
+        }
+
         return MonitoredWorkflow(
-            id: editingID ?? UUID(),
             displayName: trimmedDisplayName.isEmpty ? trimmedRepo : trimmedDisplayName,
             owner: trimmedOwner,
             repo: trimmedRepo,
-            branch: trimmedBranch,
+            branch: normalizedBranch,
             workflowFile: trimmedWorkflowFile,
             siteURL: resolvedSiteURL
         )
@@ -300,12 +398,26 @@ enum CombinedStatus {
     }
 }
 
-private extension String {
+extension String {
     var trimmedWorkflowValue: String {
         trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     var normalizedWorkflowValue: String {
         trimmedWorkflowValue.lowercased()
+    }
+
+    var normalizedMonitorBranchValue: String {
+        trimmedWorkflowValue.lowercased()
+    }
+
+    var workflowFileDisplayName: String {
+        let trimmedValue = trimmedWorkflowValue
+        guard !trimmedValue.isEmpty else {
+            return trimmedValue
+        }
+
+        let lastPathComponent = (trimmedValue as NSString).lastPathComponent
+        return lastPathComponent.isEmpty ? trimmedValue : lastPathComponent
     }
 }

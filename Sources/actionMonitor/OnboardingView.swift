@@ -7,6 +7,7 @@ struct OnboardingView: View {
     @State private var tokenInput = ""
     @State private var workflowDraft = MonitoredWorkflowDraft()
     @State private var showTokenFallback = false
+    @State private var showsManualWorkflowForm = false
     @State private var workflowError: String?
 
     var body: some View {
@@ -91,7 +92,7 @@ struct OnboardingView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     WelcomeBullet(systemImage: "person.crop.circle.badge.checkmark", text: "Sign in with GitHub in your browser")
                     WelcomeBullet(systemImage: "checklist", text: "Confirm which accessible repositories this Mac can monitor")
-                    WelcomeBullet(systemImage: "gearshape.2.fill", text: "Pick the repository workflow you want to watch")
+                    WelcomeBullet(systemImage: "sparkles.rectangle.stack", text: "Discover the repository workflows you want to watch")
                     WelcomeBullet(systemImage: "menubar.rectangle", text: "Start monitoring right from the menu bar")
                 }
 
@@ -213,10 +214,10 @@ struct OnboardingView: View {
     private var workflowStep: some View {
         OnboardingCard {
             VStack(alignment: .leading, spacing: 18) {
-                Text("Add Your First Workflow")
+                Text("Discover Workflows")
                     .font(.system(size: 24, weight: .semibold, design: .rounded))
 
-                Text("Use the workflow file name or path exactly as it appears in your repository. You can add more workflows later in Settings.")
+                Text("actionMonitor can scan the repositories you selected in GitHub Access, suggest workflows to monitor, and add them in one step.")
                     .foregroundStyle(.secondary)
 
                 if !store.workflows.isEmpty {
@@ -231,12 +232,44 @@ struct OnboardingView: View {
                     }
                 }
 
-                OnboardingTextField(title: "Display Name", placeholder: "Customer Dashboard", text: $workflowDraft.displayName)
-                OnboardingTextField(title: "Owner or Organization", placeholder: "octo-org", text: $workflowDraft.owner)
-                OnboardingTextField(title: "Repository", placeholder: "dashboard", text: $workflowDraft.repo)
-                OnboardingTextField(title: "Branch", placeholder: "main", text: $workflowDraft.branch)
-                OnboardingTextField(title: "Workflow File", placeholder: ".github/workflows/deploy.yml", text: $workflowDraft.workflowFile)
-                OnboardingTextField(title: "Site URL (Optional)", placeholder: "https://dashboard.example.com", text: $workflowDraft.siteURLText)
+                WorkflowDiscoveryReviewView(
+                    store: store,
+                    addButtonTitle: store.selectedDiscoveredWorkflowCount == 1
+                        ? "Add 1 Workflow"
+                        : "Add \(store.selectedDiscoveredWorkflowCount) Workflows",
+                    onAddSelected: addDiscoveredWorkflows,
+                    manualActionTitle: showsManualWorkflowForm ? "Hide Manual Entry" : "Add Workflow Manually",
+                    manualAction: {
+                        showsManualWorkflowForm.toggle()
+                    },
+                    zeroSelectionActionTitle: "Open GitHub Access",
+                    zeroSelectionAction: {
+                        store.showSettingsDirectly()
+                    }
+                )
+
+                if showsManualWorkflowForm || !store.canDiscoverWorkflows {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Divider()
+
+                        Text("Manual Workflow")
+                            .font(.headline)
+
+                        Text("Use the workflow file name or path exactly as it appears in your repository.")
+                            .foregroundStyle(.secondary)
+
+                        OnboardingTextField(title: "Display Name", placeholder: "Customer Dashboard", text: $workflowDraft.displayName)
+                        OnboardingTextField(title: "Owner or Organization", placeholder: "octo-org", text: $workflowDraft.owner)
+                        OnboardingTextField(title: "Repository", placeholder: "dashboard", text: $workflowDraft.repo)
+                        OnboardingTextField(title: "Branch", placeholder: "main", text: $workflowDraft.branch)
+                        OnboardingTextField(title: "Workflow File", placeholder: ".github/workflows/deploy.yml", text: $workflowDraft.workflowFile)
+                        OnboardingTextField(title: "Site URL (Optional)", placeholder: "https://dashboard.example.com", text: $workflowDraft.siteURLText)
+
+                        Button(store.workflows.isEmpty ? "Save Workflow Manually" : "Save Another Workflow Manually") {
+                            saveWorkflow()
+                        }
+                    }
+                }
 
                 if let workflowError {
                     WizardMessage(systemImage: "exclamationmark.circle.fill", message: workflowError, tint: .red)
@@ -252,11 +285,6 @@ struct OnboardingView: View {
                     }
 
                     Spacer()
-
-                    Button(store.workflows.isEmpty ? "Save Workflow" : "Save Another Workflow") {
-                        saveWorkflow()
-                    }
-                    .keyboardShortcut(.defaultAction)
 
                     Button("Continue") {
                         store.continueFromWorkflowStep()
@@ -353,6 +381,16 @@ struct OnboardingView: View {
         do {
             try store.addWorkflow(from: workflowDraft)
             workflowDraft = MonitoredWorkflowDraft()
+            workflowError = nil
+            showsManualWorkflowForm = false
+        } catch {
+            workflowError = error.localizedDescription
+        }
+    }
+
+    private func addDiscoveredWorkflows() {
+        do {
+            try store.addSelectedDiscoveredWorkflows()
             workflowError = nil
         } catch {
             workflowError = error.localizedDescription

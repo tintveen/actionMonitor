@@ -150,6 +150,213 @@ final class StatusStoreTests: XCTestCase {
         XCTAssertEqual(store.workflows.count, 1)
     }
 
+    func testDiscoverWorkflowsPreselectsActiveSuggestionsAndLeavesInactiveSelectable() async {
+        let repository = accessibleRepository()
+        let store = StatusStore(
+            workflowStore: InMemoryMonitoredWorkflowStore(),
+            client: TestGitHubDataClient(
+                installations: [installationSummary(id: repository.installationID, accountLogin: repository.ownerLogin)],
+                repositoriesByInstallation: [1: [repository]],
+                workflowsByRepository: [
+                    "octo-org/dashboard": [
+                        GitHubWorkflowSummary(id: 201, name: "Deploy", path: ".github/workflows/deploy.yml", state: "active"),
+                        GitHubWorkflowSummary(id: 202, name: "Nightly", path: ".github/workflows/nightly.yml", state: "disabled_manually"),
+                    ]
+                ]
+            ),
+            appSetupStore: TestAppSetupStore(didCompleteOnboarding: false),
+            settingsPresenter: TestSettingsPresenter(),
+            authManager: TestGitHubAuthManager(
+                configuration: configuredOAuth(),
+                session: githubAppSession(selectedRepositoryIDs: [repository.id], selectedInstallationIDs: [repository.installationID])
+            ),
+            promptsForIncompleteSetup: false,
+            allowsPersonalAccessTokenFallback: true
+        )
+
+        store.beginOnboarding()
+        store.continueFromSignInStep()
+        store.reloadGitHubAccess()
+
+        await waitForCondition {
+            !store.isDiscoveringWorkflows && store.discoveredWorkflowSuggestions.count == 2
+        }
+
+        let suggestionsByName = Dictionary(uniqueKeysWithValues: store.discoveredWorkflowSuggestions.map { ($0.displayName, $0) })
+        XCTAssertEqual(suggestionsByName["Deploy"]?.isSelected, true)
+        XCTAssertEqual(suggestionsByName["Deploy"]?.isSelectable, true)
+        XCTAssertEqual(suggestionsByName["Nightly"]?.isSelected, false)
+        XCTAssertEqual(suggestionsByName["Nightly"]?.isSelectable, true)
+        XCTAssertEqual(suggestionsByName["Nightly"]?.statusLabel, "Not active on GitHub")
+    }
+
+    func testDiscoverWorkflowsMarksLegacyPathMatchAsAlreadyAdded() async {
+        let repository = accessibleRepository()
+        let existingWorkflow = sampleWorkflow(
+            displayName: "Deploy",
+            owner: repository.ownerLogin,
+            repo: repository.name,
+            branch: repository.defaultBranch ?? "main",
+            workflowID: nil,
+            workflowFile: ".github/workflows/deploy.yml"
+        )
+        let store = StatusStore(
+            workflowStore: InMemoryMonitoredWorkflowStore(initialWorkflows: [existingWorkflow]),
+            client: TestGitHubDataClient(
+                installations: [installationSummary(id: repository.installationID, accountLogin: repository.ownerLogin)],
+                repositoriesByInstallation: [1: [repository]],
+                workflowsByRepository: [
+                    "octo-org/dashboard": [
+                        GitHubWorkflowSummary(id: 201, name: "Deploy", path: ".github/workflows/deploy.yml", state: "active")
+                    ]
+                ]
+            ),
+            appSetupStore: TestAppSetupStore(didCompleteOnboarding: false),
+            settingsPresenter: TestSettingsPresenter(),
+            authManager: TestGitHubAuthManager(
+                configuration: configuredOAuth(),
+                session: githubAppSession(selectedRepositoryIDs: [repository.id], selectedInstallationIDs: [repository.installationID])
+            ),
+            promptsForIncompleteSetup: false,
+            allowsPersonalAccessTokenFallback: true
+        )
+
+        store.beginOnboarding()
+        store.continueFromSignInStep()
+        store.reloadGitHubAccess()
+
+        await waitForCondition {
+            !store.isDiscoveringWorkflows && store.discoveredWorkflowSuggestions.count == 1
+        }
+
+        XCTAssertEqual(store.discoveredWorkflowSuggestions.first?.isAlreadyMonitored, true)
+        XCTAssertEqual(store.discoveredWorkflowSuggestions.first?.isSelectable, false)
+        XCTAssertEqual(store.discoveredWorkflowSuggestions.first?.statusLabel, "Already added")
+    }
+
+    func testDiscoverWorkflowsHandlesZeroSelectedRepositoriesWithoutError() async {
+        let repository = accessibleRepository()
+        let store = StatusStore(
+            workflowStore: InMemoryMonitoredWorkflowStore(),
+            client: TestGitHubDataClient(
+                installations: [installationSummary(id: repository.installationID, accountLogin: repository.ownerLogin)],
+                repositoriesByInstallation: [1: [repository]],
+                workflowsByRepository: [
+                    "octo-org/dashboard": [
+                        GitHubWorkflowSummary(id: 201, name: "Deploy", path: ".github/workflows/deploy.yml", state: "active")
+                    ]
+                ]
+            ),
+            appSetupStore: TestAppSetupStore(didCompleteOnboarding: false),
+            settingsPresenter: TestSettingsPresenter(),
+            authManager: TestGitHubAuthManager(
+                configuration: configuredOAuth(),
+                session: githubAppSession(selectedRepositoryIDs: [repository.id], selectedInstallationIDs: [repository.installationID])
+            ),
+            promptsForIncompleteSetup: false,
+            allowsPersonalAccessTokenFallback: true
+        )
+
+        store.reloadGitHubAccess()
+        await waitForCondition {
+            store.accessibleRepositories.count == 1
+        }
+
+        store.clearAccessibleRepositorySelection()
+        store.discoverWorkflows()
+
+        XCTAssertTrue(store.selectedRepositoryIDs.isEmpty)
+        XCTAssertFalse(store.hasSelectedAccessibleRepositories)
+        XCTAssertEqual(store.discoveredWorkflowSuggestions, [])
+        XCTAssertNil(store.workflowDiscoveryMessage)
+    }
+
+    func testAddingSelectedDiscoveredWorkflowsPersistsAndAdvancesOnboarding() async throws {
+        let repository = accessibleRepository()
+        let store = StatusStore(
+            workflowStore: InMemoryMonitoredWorkflowStore(),
+            client: TestGitHubDataClient(
+                installations: [installationSummary(id: repository.installationID, accountLogin: repository.ownerLogin)],
+                repositoriesByInstallation: [1: [repository]],
+                workflowsByRepository: [
+                    "octo-org/dashboard": [
+                        GitHubWorkflowSummary(id: 201, name: "Deploy", path: ".github/workflows/deploy.yml", state: "active")
+                    ]
+                ]
+            ),
+            appSetupStore: TestAppSetupStore(didCompleteOnboarding: false),
+            settingsPresenter: TestSettingsPresenter(),
+            authManager: TestGitHubAuthManager(
+                configuration: configuredOAuth(),
+                session: githubAppSession(selectedRepositoryIDs: [repository.id], selectedInstallationIDs: [repository.installationID])
+            ),
+            promptsForIncompleteSetup: false
+        )
+
+        store.beginOnboarding()
+        store.continueFromSignInStep()
+        store.reloadGitHubAccess()
+
+        await waitForCondition {
+            !store.isDiscoveringWorkflows && store.discoveredWorkflowSuggestions.count == 1
+        }
+
+        try store.addSelectedDiscoveredWorkflows()
+
+        XCTAssertEqual(store.workflows.count, 1)
+        XCTAssertEqual(store.workflows.first?.workflowID, 201)
+        XCTAssertEqual(store.workflows.first?.branch, "main")
+        XCTAssertEqual(store.onboardingStep, .finish)
+    }
+
+    func testRepositorySelectionAndSessionChangesResetDiscoveryState() async {
+        let repository = accessibleRepository()
+        let store = StatusStore(
+            workflowStore: InMemoryMonitoredWorkflowStore(),
+            client: TestGitHubDataClient(
+                installations: [installationSummary(id: repository.installationID, accountLogin: repository.ownerLogin)],
+                repositoriesByInstallation: [1: [repository]],
+                workflowsByRepository: [
+                    "octo-org/dashboard": [
+                        GitHubWorkflowSummary(id: 201, name: "Deploy", path: ".github/workflows/deploy.yml", state: "active")
+                    ]
+                ]
+            ),
+            appSetupStore: TestAppSetupStore(didCompleteOnboarding: false),
+            settingsPresenter: TestSettingsPresenter(),
+            authManager: TestGitHubAuthManager(
+                configuration: configuredOAuth(),
+                session: githubAppSession(selectedRepositoryIDs: [repository.id], selectedInstallationIDs: [repository.installationID])
+            ),
+            promptsForIncompleteSetup: false,
+            allowsPersonalAccessTokenFallback: true
+        )
+
+        store.beginOnboarding()
+        store.continueFromSignInStep()
+        store.reloadGitHubAccess()
+
+        await waitForCondition {
+            !store.isDiscoveringWorkflows && store.discoveredWorkflowSuggestions.count == 1
+        }
+
+        store.clearAccessibleRepositorySelection()
+        XCTAssertEqual(store.discoveredWorkflowSuggestions, [])
+
+        store.reloadGitHubAccess()
+        await waitForCondition {
+            store.accessibleRepositories.count == 1 && store.selectedRepositoryIDs == [repository.id]
+        }
+        store.discoverWorkflows()
+        await waitForCondition {
+            !store.isDiscoveringWorkflows && store.discoveredWorkflowSuggestions.count == 1
+        }
+
+        store.savePersonalAccessToken("manual-token")
+        XCTAssertEqual(store.discoveredWorkflowSuggestions, [])
+        XCTAssertFalse(store.canDiscoverWorkflows)
+    }
+
     func testFinishOnboardingPersistsCompletionAndDismissesWindow() throws {
         let presenter = TestSettingsPresenter()
         let setupStore = TestAppSetupStore(didCompleteOnboarding: false)
@@ -315,12 +522,17 @@ private final class TestAppSetupStore: AppSetupStore, @unchecked Sendable {
 @MainActor
 private final class TestSettingsPresenter: SettingsPresenting {
     private(set) var showSettingsCallCount = 0
+    private(set) var showSettingsDirectlyCallCount = 0
     private(set) var showOnboardingSteps: [OnboardingStep] = []
     private(set) var dismissOnboardingCallCount = 0
     private(set) var openedExternalURLs: [URL] = []
 
     func showSettings() {
         showSettingsCallCount += 1
+    }
+
+    func showSettingsDirectly() {
+        showSettingsDirectlyCallCount += 1
     }
 
     func showOnboarding(startingAt step: OnboardingStep) {
@@ -339,6 +551,8 @@ private final class TestSettingsPresenter: SettingsPresenting {
 private struct TestGitHubDataClient: GitHubDataFetching {
     var installations: [GitHubInstallationSummary] = []
     var repositoriesByInstallation: [Int64: [GitHubAccessibleRepositorySummary]] = [:]
+    var workflowsByRepository: [String: [GitHubWorkflowSummary]] = [:]
+    var workflowErrorMessagesByRepository: [String: String] = [:]
 
     func fetchViewer(accessToken: String) async throws -> GitHubUserProfile {
         GitHubUserProfile(id: 1, login: "octocat")
@@ -360,7 +574,12 @@ private struct TestGitHubDataClient: GitHubDataFetching {
         repo: String,
         accessToken: String
     ) async throws -> [GitHubWorkflowSummary] {
-        []
+        let repositoryKey = "\(owner)/\(repo)"
+        if let errorMessage = workflowErrorMessagesByRepository[repositoryKey] {
+            throw TestGitHubDataClientError(message: errorMessage)
+        }
+
+        return workflowsByRepository[repositoryKey] ?? []
     }
 
     func fetchLatestRun(for workflow: MonitoredWorkflow, token: String?) async throws -> WorkflowRun? {
@@ -415,15 +634,25 @@ private func browserAuthorizationContext() -> GitHubBrowserAuthorizationContext 
 }
 
 private func githubAppSession() -> GitHubAppSession {
+    githubAppSession(selectedRepositoryIDs: [], selectedInstallationIDs: [])
+}
+
+private func githubAppSession(
+    login: String = "octocat",
+    selectedRepositoryIDs: [Int64],
+    selectedInstallationIDs: [Int64]
+) -> GitHubAppSession {
     GitHubAppSession(
         accessToken: "oauth-token",
         accessTokenExpiresAt: Date(timeIntervalSince1970: 1_712_028_800),
         refreshToken: "refresh-token",
         refreshTokenExpiresAt: Date(timeIntervalSince1970: 1_727_897_600),
         userID: 42,
-        login: "octocat",
+        login: login,
         source: .githubAppBrowser,
-        savedAt: Date(timeIntervalSince1970: 1_712_000_000)
+        savedAt: Date(timeIntervalSince1970: 1_712_000_000),
+        selectedInstallationIDs: selectedInstallationIDs,
+        selectedRepositoryIDs: selectedRepositoryIDs
     )
 }
 
@@ -432,6 +661,7 @@ private func sampleWorkflow(
     owner: String = "tintveen",
     repo: String = "example.com",
     branch: String = "main",
+    workflowID: Int64? = nil,
     workflowFile: String = "deploy.yml",
     siteURL: URL? = URL(string: "https://example.com")
 ) -> MonitoredWorkflow {
@@ -441,9 +671,49 @@ private func sampleWorkflow(
         owner: owner,
         repo: repo,
         branch: branch,
+        workflowID: workflowID,
         workflowFile: workflowFile,
         siteURL: siteURL
     )
+}
+
+private func accessibleRepository(
+    id: Int64 = 101,
+    installationID: Int64 = 1,
+    ownerLogin: String = "octo-org",
+    name: String = "dashboard",
+    defaultBranch: String? = "main"
+) -> GitHubAccessibleRepositorySummary {
+    GitHubAccessibleRepositorySummary(
+        id: id,
+        installationID: installationID,
+        ownerLogin: ownerLogin,
+        name: name,
+        fullName: "\(ownerLogin)/\(name)",
+        isPrivate: true,
+        defaultBranch: defaultBranch
+    )
+}
+
+private func installationSummary(
+    id: Int64 = 1,
+    accountLogin: String = "octo-org"
+) -> GitHubInstallationSummary {
+    GitHubInstallationSummary(
+        id: id,
+        accountLogin: accountLogin,
+        accountType: "Organization",
+        targetType: "Organization",
+        repositorySelection: "selected"
+    )
+}
+
+private struct TestGitHubDataClientError: LocalizedError {
+    let message: String
+
+    var errorDescription: String? {
+        message
+    }
 }
 
 @MainActor
