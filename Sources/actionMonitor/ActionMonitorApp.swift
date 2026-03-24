@@ -14,10 +14,14 @@ struct ActionMonitorApp: App {
         let settingsWindowController = SettingsWindowController()
         let launchMode = AppLaunchMode()
         let store: StatusStore
+        let credentialStore = CredentialStoreFactory.makeDefault()
 
         switch launchMode {
         case .live:
-            store = StatusStore(settingsPresenter: settingsWindowController)
+            store = StatusStore(
+                settingsPresenter: settingsWindowController,
+                authManager: GitHubAuthManager(credentialStore: credentialStore)
+            )
         case .demo:
             let demoStore = InMemoryMonitoredWorkflowStore(initialWorkflows: MonitoredWorkflow.demoWorkflows)
             store = StatusStore(

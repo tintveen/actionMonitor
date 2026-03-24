@@ -6,6 +6,28 @@ protocol CredentialStore: Sendable {
     func removeSession() throws
 }
 
+enum CredentialStoreFactory {
+    static func makeDefault(executablePath: String? = CommandLine.arguments.first) -> any CredentialStore {
+        #if canImport(Security)
+        if usesKeychainPersistence(executablePath: executablePath) {
+            return KeychainCredentialStore()
+        }
+
+        return FileBackedCredentialStore()
+        #else
+        return FileBackedCredentialStore()
+        #endif
+    }
+
+    static func usesKeychainPersistence(executablePath: String? = CommandLine.arguments.first) -> Bool {
+        guard let executablePath else {
+            return false
+        }
+
+        return executablePath.contains(".app/Contents/MacOS/")
+    }
+}
+
 enum CredentialStoreError: LocalizedError {
     case unexpectedStatus(Int)
     case invalidData
@@ -29,6 +51,92 @@ enum CredentialStoreError: LocalizedError {
     }
 }
 
+enum FileBackedCredentialStoreError: LocalizedError {
+    case corruptedFile(URL)
+    case failedToLoad(URL, String)
+    case failedToCreateDirectory(URL, String)
+    case failedToSave(URL, String)
+
+    var errorDescription: String? {
+        switch self {
+        case .corruptedFile(let url):
+            return "The saved GitHub session at \(url.lastPathComponent) is invalid."
+        case .failedToLoad(let url, let message):
+            return "Could not load GitHub session from \(url.lastPathComponent): \(message)"
+        case .failedToCreateDirectory(let url, let message):
+            return "Could not create the GitHub session folder at \(url.path): \(message)"
+        case .failedToSave(let url, let message):
+            return "Could not save GitHub session to \(url.lastPathComponent): \(message)"
+        }
+    }
+}
+
+struct FileBackedCredentialStore: CredentialStore {
+    let fileURL: URL
+
+    init(fileURL: URL = Self.defaultFileURL()) {
+        self.fileURL = fileURL
+    }
+
+    static func defaultFileURL(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
+        homeDirectory
+            .appending(path: "Library", directoryHint: .isDirectory)
+            .appending(path: "Application Support", directoryHint: .isDirectory)
+            .appending(path: "actionMonitor", directoryHint: .isDirectory)
+            .appending(path: "github-oauth-session.json", directoryHint: .notDirectory)
+    }
+
+    func loadSession() throws -> GitHubOAuthSession? {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            return nil
+        }
+
+        do {
+            let data = try Data(contentsOf: fileURL)
+            return try GitHubOAuthSessionCodec.decode(data)
+        } catch is DecodingError {
+            throw FileBackedCredentialStoreError.corruptedFile(fileURL)
+        } catch {
+            throw FileBackedCredentialStoreError.failedToLoad(fileURL, error.localizedDescription)
+        }
+    }
+
+    func saveSession(_ session: GitHubOAuthSession) throws {
+        let directoryURL = fileURL.deletingLastPathComponent()
+
+        do {
+            try FileManager.default.createDirectory(
+                at: directoryURL,
+                withIntermediateDirectories: true
+            )
+        } catch {
+            throw FileBackedCredentialStoreError.failedToCreateDirectory(
+                directoryURL,
+                error.localizedDescription
+            )
+        }
+
+        do {
+            let data = try GitHubOAuthSessionCodec.encode(session)
+            try data.write(to: fileURL, options: .atomic)
+        } catch {
+            throw FileBackedCredentialStoreError.failedToSave(fileURL, error.localizedDescription)
+        }
+    }
+
+    func removeSession() throws {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            return
+        }
+
+        do {
+            try FileManager.default.removeItem(at: fileURL)
+        } catch {
+            throw FileBackedCredentialStoreError.failedToSave(fileURL, error.localizedDescription)
+        }
+    }
+}
+
 #if canImport(Security)
 import Security
 
@@ -36,16 +144,6 @@ struct KeychainCredentialStore: CredentialStore {
     private let service = "actionMonitor.github.oauth-session"
     private let legacyService = "actionMonitor.github.session"
     private let account = "github.com"
-    private static let encoder: JSONEncoder = {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        return encoder
-    }()
-    private static let decoder: JSONDecoder = {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return decoder
-    }()
 
     func loadSession() throws -> GitHubOAuthSession? {
         if let data = try loadData(service: service) {
@@ -73,16 +171,16 @@ struct KeychainCredentialStore: CredentialStore {
         _ data: Data,
         legacySavedAt: Date = Date()
     ) throws -> GitHubOAuthSession {
-        if let session = try? decoder.decode(GitHubOAuthSession.self, from: data) {
+        if let session = try? GitHubOAuthSessionCodec.decode(data, as: GitHubOAuthSession.self) {
             return session
         }
 
-        if let legacySession = try? decoder.decode(LegacyGitHubAppSession.self, from: data),
+        if let legacySession = try? GitHubOAuthSessionCodec.decode(data, as: LegacyGitHubAppSession.self),
            legacySession.requiresReconnect {
             throw CredentialStoreError.migrationRequired
         }
 
-        if let credential = try? decoder.decode(LegacyGitHubCredential.self, from: data) {
+        if let credential = try? GitHubOAuthSessionCodec.decode(data, as: LegacyGitHubCredential.self) {
             return GitHubOAuthSession(
                 accessToken: credential.accessToken,
                 userID: nil,
@@ -108,7 +206,7 @@ struct KeychainCredentialStore: CredentialStore {
     }
 
     static func encodeSession(_ session: GitHubOAuthSession) throws -> Data {
-        try encoder.encode(session)
+        try GitHubOAuthSessionCodec.encode(session)
     }
 
     static func decodeStoredCredentialData(
@@ -242,6 +340,28 @@ struct DemoCredentialStore: CredentialStore {
     }
 }
 #endif
+
+private enum GitHubOAuthSessionCodec {
+    private static let encoder: JSONEncoder = {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        return encoder
+    }()
+
+    private static let decoder: JSONDecoder = {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return decoder
+    }()
+
+    static func encode<T: Encodable>(_ value: T) throws -> Data {
+        try encoder.encode(value)
+    }
+
+    static func decode<T: Decodable>(_ data: Data, as type: T.Type = T.self) throws -> T {
+        try decoder.decode(type, from: data)
+    }
+}
 
 private struct LegacyGitHubCredential: Decodable {
     let accessToken: String

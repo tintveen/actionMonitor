@@ -47,6 +47,38 @@ final class CredentialStoreTests: XCTestCase {
         }
     }
 
+    func testFileBackedCredentialStoreRoundTripsSession() throws {
+        let fileURL = temporaryFileURL()
+        let store = FileBackedCredentialStore(fileURL: fileURL)
+        let credential = GitHubCredential(
+            accessToken: "oauth-token",
+            userID: 42,
+            login: "octocat",
+            source: .oauthBrowser,
+            grantedScopes: ["repo"],
+            savedAt: Date(timeIntervalSince1970: 1_712_000_000),
+            selectedRepositoryIDs: [101, 202]
+        )
+
+        try store.saveSession(credential)
+
+        XCTAssertEqual(try store.loadSession(), credential)
+    }
+
+    func testCredentialStoreFactoryUsesFileStorageForSwiftRunLaunches() {
+        XCTAssertFalse(
+            CredentialStoreFactory.usesKeychainPersistence(
+                executablePath: "/Users/tintveen/Documents/GitHub/actionMonitor/.build/debug/actionMonitor"
+            )
+        )
+
+        XCTAssertTrue(
+            CredentialStoreFactory.usesKeychainPersistence(
+                executablePath: "/Applications/actionMonitor.app/Contents/MacOS/actionMonitor"
+            )
+        )
+    }
+
     func testDecodeStoredCredentialDataRequiresReconnectForLegacyGitHubAppSession() {
         let payload = """
         {
@@ -65,5 +97,15 @@ final class CredentialStoreTests: XCTestCase {
                 return XCTFail("Expected migrationRequired error, got \(error)")
             }
         }
+    }
+
+    private func temporaryFileURL() -> URL {
+        let baseDirectory = FileManager.default.temporaryDirectory
+        let fileURL = baseDirectory
+            .appending(path: "actionMonitor-tests", directoryHint: .isDirectory)
+            .appending(path: "\(UUID().uuidString).json", directoryHint: .notDirectory)
+
+        try? FileManager.default.removeItem(at: fileURL)
+        return fileURL
     }
 }

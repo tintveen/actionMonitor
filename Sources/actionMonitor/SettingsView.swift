@@ -132,10 +132,8 @@ struct SettingsView: View {
     private var authSection: some View {
         SettingsSectionCard {
             VStack(alignment: .leading, spacing: 14) {
-                SettingsSectionHeader(
-                    title: "GitHub",
-                    detail: authSummaryText
-                )
+                Text("GitHub")
+                    .font(.system(size: 20, weight: .semibold, design: .rounded))
 
                 if let configurationMessage = store.gitHubSignInConfigurationMessage {
                     InlineMessageView(
@@ -170,10 +168,8 @@ struct SettingsView: View {
     private var monitoringSection: some View {
         SettingsSectionCard {
             VStack(alignment: .leading, spacing: 14) {
-                SettingsSectionHeader(
-                    title: "Monitoring",
-                    detail: store.workflowRefreshInterval.shortLabel
-                )
+                Text("Monitoring")
+                    .font(.system(size: 20, weight: .semibold, design: .rounded))
 
                 VStack(alignment: .leading, spacing: 10) {
                     Text("How often Action Monitor checks GitHub for workflow updates.")
@@ -187,10 +183,6 @@ struct SettingsView: View {
                         }
                     }
                     .pickerStyle(.menu)
-
-                    Text(store.workflowRefreshInterval.settingsDescription)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
                 }
                 .padding(16)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -208,11 +200,18 @@ struct SettingsView: View {
 
     private var dangerZoneSection: some View {
         SettingsSectionCard {
-            VStack(alignment: .leading, spacing: 14) {
-                SettingsSectionHeader(
-                    title: "Reset",
-                    detail: "Clear local app data"
-                )
+            VStack(alignment: .leading, spacing: 12) {
+                Button(role: .destructive) {
+                    isResetConfirmationPresented = true
+                } label: {
+                    Label("Reset App", systemImage: "trash")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .tint(.red)
+                .disabled(store.isResetting)
 
                 if let resetMessage = store.resetMessage {
                     InlineMessageView(
@@ -220,21 +219,6 @@ struct SettingsView: View {
                         message: resetMessage,
                         tint: .red
                     )
-                }
-
-                HStack(spacing: 12) {
-                    Button(role: .destructive) {
-                        isResetConfirmationPresented = true
-                    } label: {
-                        if store.isResetting {
-                            Label("Resetting…", systemImage: "arrow.triangle.2.circlepath")
-                        } else {
-                            Label("Reset App…", systemImage: "trash")
-                        }
-                    }
-                    .disabled(store.isResetting)
-
-                    Spacer()
                 }
             }
         }
@@ -276,7 +260,7 @@ struct SettingsView: View {
         case .signedInOAuthApp(let summary):
             CredentialSummaryCard(
                 summary: summary,
-                title: summary.login.map { "@\($0)" } ?? "GitHub connected",
+                title: "GitHub connected",
                 subtitle: "Connected with browser sign-in.",
                 primaryButtonTitle: "Sign In Again",
                 primaryAction: {
@@ -409,7 +393,7 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 10) {
             SettingsSubsectionHeader(
                 title: "Token",
-                detail: store.hasStoredPersonalAccessToken ? "Saved in Keychain" : "Optional fallback"
+                detail: store.hasStoredPersonalAccessToken ? "Saved locally" : "Optional fallback"
             )
 
             SecureField("GitHub personal access token", text: $tokenInput)
@@ -538,21 +522,6 @@ struct SettingsView: View {
         }
 
         return "\(store.selectedDiscoveredWorkflowCount) of \(store.selectableDiscoveredWorkflowCount) selected"
-    }
-
-    private var authSummaryText: String {
-        switch store.authState {
-        case .signedOut:
-            return "Not connected"
-        case .authError:
-            return "Needs attention"
-        case .signingInBrowser:
-            return "Signing in…"
-        case .signedInOAuthApp(let summary):
-            return summary.login.map { "@\($0)" } ?? "Connected"
-        case .signedInPersonalAccessToken:
-            return "Token saved"
-        }
     }
 
     private var refreshIntervalBinding: Binding<WorkflowRefreshInterval> {

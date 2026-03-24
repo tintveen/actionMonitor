@@ -42,6 +42,8 @@ For local debugging, this plist-based setup is convenient. For a public macOS re
 swift run actionMonitor
 ```
 
+When launched this way, actionMonitor stores the GitHub session in `~/Library/Application Support/actionMonitor/github-oauth-session.json` so repeated terminal runs do not keep asking Keychain for approval. The installed app bundle still uses Keychain.
+
 ### Launch demo mode
 
 ```bash
@@ -77,7 +79,7 @@ If you skip onboarding, the app continues to work, but setup stays incomplete an
 7. Copy the app's client secret into `Support/Info.plist` under `GitHubOAuthAppClientSecret`.
 8. Build or install the app again so the bundled metadata includes both values.
 
-During sign-in, `actionMonitor` opens the system browser, listens on a temporary loopback callback such as `http://127.0.0.1:8123/callback`, validates the returned PKCE state, exchanges the code for a GitHub OAuth access token, validates the account with `GET /user`, and stores the session in Keychain.
+During sign-in, `actionMonitor` opens the system browser, listens on a temporary loopback callback such as `http://127.0.0.1:8123/callback`, validates the returned PKCE state, exchanges the code for a GitHub OAuth access token, validates the account with `GET /user`, and stores the session locally.
 
 The browser flow uses a random free loopback port at runtime while keeping the registered callback URL at `http://127.0.0.1/callback`.
 
@@ -86,7 +88,7 @@ In local debug builds, auth diagnostics are written to stderr so you can confirm
 ## GitHub Repositories Guidance
 
 - Public repositories usually work without authentication.
-- Private repositories work best with GitHub browser sign-in, which stores the resulting OAuth access token in Keychain.
+- Private repositories work best with GitHub browser sign-in, which stores the resulting OAuth access token locally.
 - Repository access follows the signed-in user's actual GitHub access and may still be limited by org OAuth approval or SSO requirements.
 - The bundled client secret is the biggest launch risk for a public native app.
 - Any authenticated path helps avoid stricter anonymous GitHub rate limits.

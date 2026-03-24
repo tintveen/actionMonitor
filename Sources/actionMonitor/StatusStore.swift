@@ -341,7 +341,7 @@ final class StatusStore: ObservableObject {
                 self.synchronizeSession(
                     session,
                     successMessage: session.login.map { "Connected GitHub as @\($0)." }
-                        ?? "GitHub session saved to Keychain."
+                        ?? "GitHub session saved locally."
                 )
                 self.hasPromptedForAuthFailure = false
                 self.advanceOnboardingAfterSuccessfulAuth()
@@ -396,7 +396,7 @@ final class StatusStore: ObservableObject {
                     source: .personalAccessToken
                 )
                 try authManager.saveManualSession(session)
-                synchronizeSession(session, successMessage: "Personal access token saved to Keychain.")
+                synchronizeSession(session, successMessage: "Personal access token saved locally.")
             }
 
             hasPromptedForAuthFailure = false
