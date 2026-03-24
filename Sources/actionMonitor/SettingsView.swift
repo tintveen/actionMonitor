@@ -9,6 +9,7 @@ struct SettingsView: View {
     @State private var editingWorkflowID: UUID?
     @State private var isEditorPresented = false
     @State private var isResetConfirmationPresented = false
+    @State private var isRepositoryAccessExpanded = false
     @State private var workflowActionMessage: String?
     @State private var workflowEditorMessage: String?
 
@@ -147,7 +148,6 @@ struct SettingsView: View {
                 authCard
 
                 if store.supportsRepositorySelection {
-                    Divider()
                     repositoryAccessSection
                 }
 
@@ -309,14 +309,58 @@ struct SettingsView: View {
     }
 
     private var repositoryAccessSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                SettingsSubsectionHeader(
-                    title: "Repositories",
-                    detail: store.accessibleRepositories.isEmpty
-                        ? "None loaded"
-                        : "\(store.selectedAccessibleRepositories.count) of \(store.accessibleRepositories.count) selected"
-                )
+        DisclosureGroup(isExpanded: $isRepositoryAccessExpanded) {
+            VStack(alignment: .leading, spacing: 10) {
+                if store.accessibleRepositories.isEmpty {
+                    Text(store.isLoadingGitHubAccess ? "Loading repositories…" : "No repositories available.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 8)
+                } else {
+                    HStack(spacing: 8) {
+                        Button("All") {
+                            store.selectAllAccessibleRepositories()
+                        }
+
+                        Button("Clear") {
+                            store.clearAccessibleRepositorySelection()
+                        }
+
+                        Button("Reload") {
+                            store.reloadGitHubAccess()
+                        }
+
+                        Spacer()
+                    }
+                    .font(.footnote)
+                    .buttonStyle(.borderless)
+
+                    VStack(spacing: 6) {
+                        ForEach(store.accessibleRepositories) { repository in
+                            RepositorySelectionRow(
+                                repository: repository,
+                                isSelected: store.isRepositorySelected(repository.id),
+                                action: {
+                                    store.toggleRepositorySelection(repository.id)
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+            .padding(.top, 10)
+        } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Repositories")
+                        .font(.headline)
+
+                    Text(store.accessibleRepositories.isEmpty
+                         ? (store.isLoadingGitHubAccess ? "Loading…" : "None loaded")
+                         : "\(store.selectedAccessibleRepositories.count) of \(store.accessibleRepositories.count) selected")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
 
                 Spacer()
 
@@ -325,42 +369,8 @@ struct SettingsView: View {
                         .controlSize(.small)
                 }
             }
-
-            if store.accessibleRepositories.isEmpty {
-                Text(store.isLoadingGitHubAccess ? "Loading repositories…" : "No repositories available.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            } else {
-                HStack(spacing: 8) {
-                    Button("All") {
-                        store.selectAllAccessibleRepositories()
-                    }
-
-                    Button("Clear") {
-                        store.clearAccessibleRepositorySelection()
-                    }
-
-                    Button("Reload") {
-                        store.reloadGitHubAccess()
-                    }
-
-                    Spacer()
-                }
-                .font(.footnote)
-
-                VStack(spacing: 8) {
-                    ForEach(store.accessibleRepositories) { repository in
-                        RepositorySelectionRow(
-                            repository: repository,
-                            isSelected: store.isRepositorySelected(repository.id),
-                            action: {
-                                store.toggleRepositorySelection(repository.id)
-                            }
-                        )
-                    }
-                }
-            }
         }
+        .buttonStyle(.plain)
     }
 
     private func authCallToActionCard(title: String, description: String) -> some View {
@@ -842,31 +852,34 @@ private struct RepositorySelectionRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 12) {
+            HStack(spacing: 10) {
                 SettingsSelectionIndicator(isSelected: isSelected, isEnabled: true)
 
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 2) {
                     Text(repository.fullName)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
+                        .lineLimit(1)
 
                     Text(repository.defaultBranch ?? "No default branch")
-                        .font(.footnote)
+                        .font(.caption)
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
 
                 Spacer()
             }
-            .padding(12)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .fill(isSelected
                           ? Color.accentColor.opacity(0.10)
                           : Color(nsColor: .windowBackgroundColor))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .strokeBorder(
                         isSelected
                             ? Color.accentColor.opacity(0.4)
