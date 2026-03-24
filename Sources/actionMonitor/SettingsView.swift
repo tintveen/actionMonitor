@@ -4,14 +4,14 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var store: StatusStore
-    @State private var tokenInput = ""
-    @State private var editorDraft = MonitoredWorkflowDraft()
-    @State private var editingWorkflowID: UUID?
-    @State private var isEditorPresented = false
-    @State private var isResetConfirmationPresented = false
-    @State private var isRepositoryAccessExpanded = false
-    @State private var workflowActionMessage: String?
-    @State private var workflowEditorMessage: String?
+    @State fileprivate var editorDraft = MonitoredWorkflowDraft()
+    @State fileprivate var editingWorkflowID: UUID?
+    @State fileprivate var isEditorPresented = false
+    @State fileprivate var isResetConfirmationPresented = false
+    @State fileprivate var isRepositoryAccessExpanded = false
+    @State fileprivate var isWorkflowsExpanded = false
+    @State fileprivate var workflowActionMessage: String?
+    @State fileprivate var workflowEditorMessage: String?
 
     init(store: StatusStore) {
         self.store = store
@@ -20,9 +20,7 @@ struct SettingsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                workflowsSection
-                monitoringSection
-                authSection
+                actionsSection
                 dangerZoneSection
             }
             .disabled(store.isResetting)
@@ -51,29 +49,35 @@ struct SettingsView: View {
         }
     }
 
-    private var workflowsSection: some View {
+    private var actionsSection: some View {
         SettingsSectionCard {
             VStack(alignment: .leading, spacing: 14) {
                 SettingsSectionHeader(
-                    title: "Workflows",
+                    title: "Actions",
                     detail: store.workflows.isEmpty ? "None added" : "\(store.workflows.count) added"
                 )
 
-                if let workflowConfigurationMessage = store.workflowConfigurationMessage {
+                VStack(alignment: .leading, spacing: 10) {
+                    authCard
+
+                    refreshFrequencyButton
+                }
+
+                if let configurationMessage = store.gitHubSignInConfigurationMessage {
                     InlineMessageView(
-                        systemImage: "exclamationmark.triangle.fill",
-                        message: workflowConfigurationMessage,
+                        systemImage: "gear.badge.xmark",
+                        message: configurationMessage,
                         tint: .orange
+                    )
+                } else if let visibleCredentialMessage {
+                    InlineMessageView(
+                        systemImage: "info.circle.fill",
+                        message: visibleCredentialMessage,
+                        tint: .blue
                     )
                 }
 
-                if let workflowActionMessage {
-                    InlineMessageView(
-                        systemImage: "exclamationmark.circle.fill",
-                        message: workflowActionMessage,
-                        tint: .red
-                    )
-                }
+                Divider()
 
                 if store.workflows.isEmpty {
                     VStack(alignment: .leading, spacing: 4) {
@@ -100,18 +104,17 @@ struct SettingsView: View {
                     }
                 }
 
+                if store.supportsRepositorySelection {
+                    repositoryAccessSection
+                }
+
                 if store.canDiscoverWorkflows ||
                     store.isDiscoveringWorkflows ||
                     store.workflowDiscoveryMessage != nil ||
                     !store.discoveredWorkflowSuggestions.isEmpty {
                     Divider()
 
-                    VStack(alignment: .leading, spacing: 12) {
-                        SettingsSubsectionHeader(
-                            title: "Discover",
-                            detail: workflowDiscoverySummary
-                        )
-
+                    DisclosureGroup(isExpanded: $isWorkflowsExpanded) {
                         WorkflowDiscoveryReviewView(
                             store: store,
                             addButtonTitle: store.selectedDiscoveredWorkflowCount == 1
@@ -120,80 +123,36 @@ struct SettingsView: View {
                             onAddSelected: addDiscoveredWorkflows,
                             manualActionTitle: nil,
                             manualAction: nil,
-                            zeroSelectionActionTitle: nil,
-                            zeroSelectionAction: nil
+                            zeroSelectionActionTitle: "Open Repositories",
+                            zeroSelectionAction: {
+                                isRepositoryAccessExpanded = true
+                            }
+                        )
+                        .padding(.top, 8)
+                    } label: {
+                        SettingsSubsectionHeader(
+                            title: "Workflows",
+                            detail: workflowDiscoverySummary
                         )
                     }
+                    .buttonStyle(.plain)
                 }
-            }
-        }
-    }
 
-    private var authSection: some View {
-        SettingsSectionCard {
-            VStack(alignment: .leading, spacing: 14) {
-                Text("GitHub")
-                    .font(.system(size: 20, weight: .semibold, design: .rounded))
-
-                if let configurationMessage = store.gitHubSignInConfigurationMessage {
+                if let workflowConfigurationMessage = store.workflowConfigurationMessage {
                     InlineMessageView(
-                        systemImage: "gear.badge.xmark",
-                        message: configurationMessage,
+                        systemImage: "exclamationmark.triangle.fill",
+                        message: workflowConfigurationMessage,
                         tint: .orange
                     )
                 }
 
-                authCard
-
-                if store.supportsRepositorySelection {
-                    repositoryAccessSection
-                }
-
-                if store.showsPersonalAccessTokenFallback {
-                    Divider()
-                    personalAccessTokenSection
-                }
-
-                if let credentialMessage = visibleCredentialMessage {
+                if let workflowActionMessage {
                     InlineMessageView(
-                        systemImage: "info.circle.fill",
-                        message: credentialMessage,
-                        tint: .blue
+                        systemImage: "exclamationmark.circle.fill",
+                        message: workflowActionMessage,
+                        tint: .red
                     )
                 }
-            }
-        }
-    }
-
-    private var monitoringSection: some View {
-        SettingsSectionCard {
-            VStack(alignment: .leading, spacing: 14) {
-                Text("Monitoring")
-                    .font(.system(size: 20, weight: .semibold, design: .rounded))
-
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("How often Action Monitor checks GitHub for workflow updates.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-
-                    Picker("Refresh frequency", selection: refreshIntervalBinding) {
-                        ForEach(WorkflowRefreshInterval.allCases) { interval in
-                            Text(interval.shortLabel)
-                                .tag(interval)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                }
-                .padding(16)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(Color(nsColor: .windowBackgroundColor))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .strokeBorder(Color(nsColor: .separatorColor).opacity(0.45), lineWidth: 1)
-                )
             }
         }
     }
@@ -269,7 +228,6 @@ struct SettingsView: View {
                 primaryActionDisabled: !store.gitHubSignInIsAvailable || store.isGitHubSignInBusy,
                 secondaryButtonTitle: "Sign Out",
                 secondaryAction: {
-                    tokenInput = ""
                     store.signOut()
                 }
             )
@@ -285,7 +243,6 @@ struct SettingsView: View {
                 primaryActionDisabled: !store.gitHubSignInIsAvailable || store.isGitHubSignInBusy,
                 secondaryButtonTitle: "Remove Token",
                 secondaryAction: {
-                    tokenInput = ""
                     store.signOut()
                 }
             )
@@ -366,16 +323,15 @@ struct SettingsView: View {
                 .font(.footnote)
                 .foregroundStyle(.secondary)
 
-            HStack(spacing: 12) {
-                Button {
-                    store.beginGitHubSignIn()
-                } label: {
-                    Label("Continue in Browser", systemImage: "safari")
-                }
-                .disabled(!store.gitHubSignInIsAvailable || store.isGitHubSignInBusy)
-
-                Spacer()
+            Button {
+                store.beginGitHubSignIn()
+            } label: {
+                GitHubActionButtonLabel(title: "Continue in Browser")
             }
+            .disabled(!store.gitHubSignInIsAvailable || store.isGitHubSignInBusy)
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .frame(maxWidth: .infinity)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -389,99 +345,33 @@ struct SettingsView: View {
         )
     }
 
-    private var personalAccessTokenSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SettingsSubsectionHeader(
-                title: "Token",
-                detail: store.hasStoredPersonalAccessToken ? "Saved locally" : "Optional fallback"
-            )
-
-            SecureField("GitHub personal access token", text: $tokenInput)
-                .textFieldStyle(.roundedBorder)
-
-            Text(store.hasStoredPersonalAccessToken
-                 ? "Replacing it updates the saved token."
-                 : "Useful only when browser sign-in is unavailable.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-
-            HStack(spacing: 8) {
-                Button(store.hasStoredPersonalAccessToken ? "Save New Token" : "Save Token") {
-                    let token = tokenInput
-                    tokenInput = ""
-                    store.savePersonalAccessToken(token)
+    private var refreshFrequencyButton: some View {
+        Menu {
+            ForEach(WorkflowRefreshInterval.allCases) { interval in
+                Button {
+                    store.setWorkflowRefreshInterval(interval)
+                } label: {
+                    if interval == store.workflowRefreshInterval {
+                        Label(interval.menuSubtitle, systemImage: "checkmark")
+                    } else {
+                        Text(interval.menuSubtitle)
+                    }
                 }
-                .disabled(tokenInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-                Button("Remove Saved Token") {
-                    tokenInput = ""
-                    store.signOut()
-                }
-                .disabled(!store.hasStoredPersonalAccessToken)
-
-                Spacer()
             }
-        }
-    }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "clock")
+                    .font(.system(size: 14, weight: .semibold))
 
-    private func openEditWorkflowEditor(_ workflow: MonitoredWorkflow) {
-        editorDraft = MonitoredWorkflowDraft(workflow: workflow)
-        editingWorkflowID = workflow.id
-        workflowEditorMessage = nil
-        workflowActionMessage = nil
-        isEditorPresented = true
-    }
+                Text("Refresh: \(store.workflowRefreshInterval.shortLabel)")
+                    .font(.headline)
 
-    private func saveWorkflow() {
-        do {
-            if let editingWorkflowID {
-                try store.updateWorkflow(id: editingWorkflowID, from: editorDraft)
-            } else {
-                try store.addWorkflow(from: editorDraft)
+                Spacer(minLength: 0)
             }
-
-            workflowActionMessage = nil
-            workflowEditorMessage = nil
-            isEditorPresented = false
-        } catch {
-            workflowEditorMessage = error.localizedDescription
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-    }
-
-    private func addDiscoveredWorkflows() {
-        do {
-            try store.addSelectedDiscoveredWorkflows()
-            workflowActionMessage = nil
-        } catch {
-            workflowActionMessage = error.localizedDescription
-        }
-    }
-
-    private func deleteWorkflow(_ id: UUID) {
-        do {
-            try store.deleteWorkflow(id: id)
-            workflowActionMessage = nil
-        } catch {
-            workflowActionMessage = error.localizedDescription
-        }
-    }
-
-    private func moveWorkflowUp(_ id: UUID) {
-        do {
-            try store.moveWorkflowUp(id: id)
-            workflowActionMessage = nil
-        } catch {
-            workflowActionMessage = error.localizedDescription
-        }
-    }
-
-    private func moveWorkflowDown(_ id: UUID) {
-        do {
-            try store.moveWorkflowDown(id: id)
-            workflowActionMessage = nil
-        } catch {
-            workflowActionMessage = error.localizedDescription
-        }
+        .menuStyle(.borderedButton)
+        .controlSize(.large)
     }
 
     private var visibleCredentialMessage: String? {
@@ -522,13 +412,6 @@ struct SettingsView: View {
         }
 
         return "\(store.selectedDiscoveredWorkflowCount) of \(store.selectableDiscoveredWorkflowCount) selected"
-    }
-
-    private var refreshIntervalBinding: Binding<WorkflowRefreshInterval> {
-        Binding(
-            get: { store.workflowRefreshInterval },
-            set: { store.setWorkflowRefreshInterval($0) }
-        )
     }
 }
 
@@ -588,6 +471,42 @@ private struct SettingsSubsectionHeader: View {
     }
 }
 
+private struct GitHubActionButtonLabel: View {
+    let title: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            SettingsGitHubLogoView()
+                .frame(width: 16, height: 16)
+
+            Text(title)
+                .font(.headline)
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct SettingsGitHubLogoView: View {
+    var body: some View {
+        Image(nsImage: Self.logoImage)
+            .resizable()
+            .scaledToFit()
+            .accessibilityHidden(true)
+    }
+
+    private static let logoImage: NSImage = {
+        guard let url = Bundle.module.url(forResource: "GitHub_Invertocat_White", withExtension: "svg"),
+              let image = NSImage(contentsOf: url) else {
+            return NSImage()
+        }
+
+        image.isTemplate = true
+        return image
+    }()
+}
+
 private struct CredentialSummaryCard: View {
     let summary: GitHubAuthSessionSummary
     let title: String
@@ -621,13 +540,26 @@ private struct CredentialSummaryCard: View {
                 WorkflowMetaPill(text: summary.savedAt.formatted(date: .abbreviated, time: .shortened))
             }
 
-            HStack(spacing: 8) {
-                Button(primaryButtonTitle, action: primaryAction)
-                    .disabled(primaryActionDisabled)
+            VStack(alignment: .leading, spacing: 8) {
+                Button {
+                    primaryAction()
+                } label: {
+                    GitHubActionButtonLabel(title: primaryButtonTitle)
+                }
+                .disabled(primaryActionDisabled)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .frame(maxWidth: .infinity)
 
-                Button(secondaryButtonTitle, action: secondaryAction)
-
-                Spacer()
+                Button {
+                    secondaryAction()
+                } label: {
+                    GitHubActionButtonLabel(title: secondaryButtonTitle)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .tint(.secondary)
+                .frame(maxWidth: .infinity)
             }
         }
         .padding(16)
@@ -640,6 +572,68 @@ private struct CredentialSummaryCard: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(Color(nsColor: .separatorColor).opacity(0.45), lineWidth: 1)
         )
+    }
+}
+
+extension SettingsView {
+    private func openEditWorkflowEditor(_ workflow: MonitoredWorkflow) {
+        editorDraft = MonitoredWorkflowDraft(workflow: workflow)
+        editingWorkflowID = workflow.id
+        workflowEditorMessage = nil
+        workflowActionMessage = nil
+        isEditorPresented = true
+    }
+
+    private func saveWorkflow() {
+        do {
+            if let editingWorkflowID {
+                try store.updateWorkflow(id: editingWorkflowID, from: editorDraft)
+            } else {
+                try store.addWorkflow(from: editorDraft)
+            }
+
+            workflowActionMessage = nil
+            workflowEditorMessage = nil
+            isEditorPresented = false
+        } catch {
+            workflowEditorMessage = error.localizedDescription
+        }
+    }
+
+    private func addDiscoveredWorkflows() {
+        do {
+            try store.addSelectedDiscoveredWorkflows()
+            workflowActionMessage = nil
+        } catch {
+            workflowActionMessage = error.localizedDescription
+        }
+    }
+
+    private func deleteWorkflow(_ id: UUID) {
+        do {
+            try store.deleteWorkflow(id: id)
+            workflowActionMessage = nil
+        } catch {
+            workflowActionMessage = error.localizedDescription
+        }
+    }
+
+    private func moveWorkflowUp(_ id: UUID) {
+        do {
+            try store.moveWorkflowUp(id: id)
+            workflowActionMessage = nil
+        } catch {
+            workflowActionMessage = error.localizedDescription
+        }
+    }
+
+    private func moveWorkflowDown(_ id: UUID) {
+        do {
+            try store.moveWorkflowDown(id: id)
+            workflowActionMessage = nil
+        } catch {
+            workflowActionMessage = error.localizedDescription
+        }
     }
 }
 

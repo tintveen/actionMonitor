@@ -48,21 +48,6 @@ struct WorkflowDiscoveryReviewView: View {
                     description: "Nothing matched in the selected repositories."
                 )
             } else {
-                HStack(spacing: 8) {
-                    Button("All New") {
-                        store.selectAllDiscoveredWorkflows()
-                    }
-                    .disabled(store.selectableDiscoveredWorkflowCount == 0)
-
-                    Button("Clear") {
-                        store.clearDiscoveredWorkflowSelection()
-                    }
-                    .disabled(!store.hasSelectedDiscoveredWorkflows)
-
-                    Spacer()
-                }
-                .font(.footnote)
-
                 VStack(spacing: 8) {
                     ForEach(store.discoveredWorkflowSuggestions) { suggestion in
                         DiscoveredWorkflowRow(store: store, suggestion: suggestion)
@@ -71,7 +56,7 @@ struct WorkflowDiscoveryReviewView: View {
             }
 
             HStack(spacing: 12) {
-                Button("Scan Again") {
+                Button("Find Workflows") {
                     store.discoverWorkflows()
                 }
                 .disabled(!store.canDiscoverWorkflows || store.isDiscoveringWorkflows)
@@ -88,9 +73,20 @@ struct WorkflowDiscoveryReviewView: View {
 
                 Spacer()
 
+                Button("Select All") {
+                    store.selectAllDiscoveredWorkflows()
+                }
+                .disabled(store.selectableDiscoveredWorkflowCount == 0)
+
+                Button("Clear") {
+                    store.clearDiscoveredWorkflowSelection()
+                }
+                .disabled(!store.hasSelectedDiscoveredWorkflows)
+
                 Button(addButtonTitle, action: onAddSelected)
                     .disabled(!store.hasSelectedDiscoveredWorkflows)
             }
+            .font(.footnote)
         }
     }
 
