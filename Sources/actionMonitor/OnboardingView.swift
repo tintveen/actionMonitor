@@ -42,7 +42,7 @@ struct OnboardingView: View {
             Text("Set Up actionMonitor")
                 .font(.system(size: 30, weight: .bold, design: .rounded))
 
-            Text("We’ll get GitHub connected, add your first workflow, and leave the app ready to watch your deploys.")
+            Text("We’ll connect GitHub, confirm repository access, add your first workflow, and leave the app ready to watch your deploys.")
                 .font(.title3)
                 .foregroundStyle(.secondary)
         }
@@ -85,11 +85,12 @@ struct OnboardingView: View {
                 Text("Welcome")
                     .font(.system(size: 24, weight: .semibold, design: .rounded))
 
-                Text("actionMonitor watches the GitHub Actions workflows you care about from your menu bar. First we’ll connect GitHub in your browser, then we’ll add the first workflow you want to monitor.")
+                Text("actionMonitor watches the GitHub Actions workflows you care about from your menu bar. First we’ll connect the GitHub App in your browser, then we’ll add the first workflow you want to monitor.")
                     .foregroundStyle(.secondary)
 
                 VStack(alignment: .leading, spacing: 10) {
                     WelcomeBullet(systemImage: "person.crop.circle.badge.checkmark", text: "Sign in with GitHub in your browser")
+                    WelcomeBullet(systemImage: "checklist", text: "Confirm which accessible repositories this Mac can monitor")
                     WelcomeBullet(systemImage: "gearshape.2.fill", text: "Pick the repository workflow you want to watch")
                     WelcomeBullet(systemImage: "menubar.rectangle", text: "Start monitoring right from the menu bar")
                 }
@@ -128,8 +129,8 @@ struct OnboardingView: View {
                 }
 
                 switch store.authState {
-                case .signedInOAuth(let summary):
-                    authSummary(summary: summary, description: "GitHub browser sign-in is ready.")
+                case .signedInGitHubApp(let summary):
+                    authSummary(summary: summary, description: "GitHub browser sign-in is ready. Repository access will be loaded automatically after sign-in.")
                 case .signedInPersonalAccessToken(let summary):
                     authSummary(summary: summary, description: "A personal access token is saved. You can continue setup or switch to browser sign-in.")
                 case .signingInBrowser(let context):
@@ -164,31 +165,33 @@ struct OnboardingView: View {
                     browserSignInActions
                 }
 
-                Divider()
+                if store.showsPersonalAccessTokenFallback {
+                    Divider()
 
-                DisclosureGroup(
-                    showTokenFallback ? "Hide token fallback" : "Use personal access token instead",
-                    isExpanded: $showTokenFallback
-                ) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("If you prefer manual token management, you can save a personal access token and continue onboarding without browser sign-in.")
-                            .foregroundStyle(.secondary)
+                    DisclosureGroup(
+                        showTokenFallback ? "Hide token fallback" : "Use personal access token instead",
+                        isExpanded: $showTokenFallback
+                    ) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("If you prefer manual token management for a local build, you can save a personal access token and continue onboarding without browser sign-in.")
+                                .foregroundStyle(.secondary)
 
-                        SecureField("GitHub personal access token", text: $tokenInput)
-                            .textFieldStyle(.roundedBorder)
+                            SecureField("GitHub personal access token", text: $tokenInput)
+                                .textFieldStyle(.roundedBorder)
 
-                        HStack(spacing: 12) {
-                            Button("Save Token") {
-                                let token = tokenInput
-                                tokenInput = ""
-                                store.savePersonalAccessToken(token)
+                            HStack(spacing: 12) {
+                                Button("Save Token") {
+                                    let token = tokenInput
+                                    tokenInput = ""
+                                    store.savePersonalAccessToken(token)
+                                }
+                                .disabled(tokenInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                                Spacer()
                             }
-                            .disabled(tokenInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-                            Spacer()
                         }
+                        .padding(.top, 12)
                     }
-                    .padding(.top, 12)
                 }
 
                 HStack(spacing: 12) {
@@ -310,7 +313,7 @@ struct OnboardingView: View {
 
     private var browserSignInActions: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Use browser sign-in so the app can access your repositories without asking you to manage tokens by hand.")
+            Text("Use browser sign-in so the app can access your repositories through the GitHub App session without asking you to manage tokens by hand.")
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 12) {
@@ -326,7 +329,7 @@ struct OnboardingView: View {
         }
     }
 
-    private func authSummary(summary: GitHubAuthAccountSummary, description: String) -> some View {
+    private func authSummary(summary: GitHubAuthSessionSummary, description: String) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Label(summary.login.map { "Signed in as @\($0)" } ?? "GitHub sign-in saved", systemImage: "person.crop.circle.badge.checkmark")
                 .font(.headline)
@@ -335,10 +338,10 @@ struct OnboardingView: View {
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 14) {
-                Label(summary.source.displayName, systemImage: summary.source == .oauthBrowser ? "safari" : "key.fill")
+                Label(summary.source.displayName, systemImage: summary.source == .githubAppBrowser ? "safari" : "key.fill")
 
-                if !summary.grantedScopes.isEmpty {
-                    Label(summary.grantedScopes.joined(separator: ", "), systemImage: "checklist")
+                if summary.selectedRepositoryCount > 0 {
+                    Label("\(summary.selectedRepositoryCount) repos selected", systemImage: "checklist")
                 }
             }
             .font(.footnote)

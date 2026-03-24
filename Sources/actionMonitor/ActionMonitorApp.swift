@@ -22,10 +22,12 @@ struct ActionMonitorApp: App {
                 workflows: MonitoredWorkflow.demoWorkflows,
                 workflowStore: demoStore,
                 client: DemoWorkflowRunFetcher(),
-                credentialStore: DemoCredentialStore(),
                 appSetupStore: DemoAppSetupStore(),
                 settingsPresenter: settingsWindowController,
-                oauthConfiguration: nil,
+                authManager: GitHubAuthManager(
+                    credentialStore: DemoCredentialStore(),
+                    configuration: nil
+                ),
                 promptsForIncompleteSetup: false,
                 showsMissingCredentialBanner: false
             )

@@ -11,7 +11,7 @@ final class GitHubBrowserOAuthAuthorizerTests: XCTestCase {
 
     func testPrepareAuthorizationBuildsBrowserURLWithLoopbackRedirectAndPKCE() async throws {
         let receiver = TestCallbackReceiver(
-            redirectURI: URL(string: "http://127.0.0.1:8123/oauth/callback")!,
+            redirectURI: URL(string: "http://127.0.0.1:8123/callback")!,
             callbackResult: .failure(GitHubBrowserOAuthError.callbackTimedOut)
         )
         let authorizer = GitHubBrowserOAuthAuthorizer(
@@ -30,20 +30,19 @@ final class GitHubBrowserOAuthAuthorizerTests: XCTestCase {
         XCTAssertEqual(components?.host, "github.com")
         XCTAssertEqual(components?.path, "/login/oauth/authorize")
         XCTAssertEqual(queryItems["client_id"], "client-id")
-        XCTAssertEqual(queryItems["redirect_uri"], "http://127.0.0.1:8123/oauth/callback")
-        XCTAssertEqual(queryItems["scope"], "repo")
+        XCTAssertEqual(queryItems["redirect_uri"], "http://127.0.0.1:8123/callback")
         XCTAssertEqual(queryItems["prompt"], "select_account")
         XCTAssertEqual(queryItems["allow_signup"], "true")
         XCTAssertEqual(queryItems["state"], context.state)
         XCTAssertEqual(queryItems["code_challenge_method"], "S256")
         XCTAssertEqual(queryItems["code_challenge"], pkceChallenge(for: context.codeVerifier))
-        XCTAssertEqual(receiver.startedPaths, ["/oauth/callback"])
+        XCTAssertEqual(receiver.startedPaths, ["/callback"])
         XCTAssertEqual(receiver.recordedHosts, ["127.0.0.1"])
     }
 
     func testWaitForAuthorizationExchangesCodeAndFetchesViewer() async throws {
         let receiver = TestCallbackReceiver(
-            redirectURI: URL(string: "http://127.0.0.1:8123/oauth/callback")!,
+            redirectURI: URL(string: "http://127.0.0.1:8123/callback")!,
             callbackResult: .failure(GitHubBrowserOAuthError.callbackTimedOut)
         )
         let authorizer = GitHubBrowserOAuthAuthorizer(
@@ -66,7 +65,9 @@ final class GitHubBrowserOAuthAuthorizerTests: XCTestCase {
                     body: """
                     {
                       "access_token": "oauth-token",
-                      "scope": "repo"
+                      "expires_in": 28800,
+                      "refresh_token": "refresh-token",
+                      "refresh_token_expires_in": 15897600
                     }
                     """
                 )
@@ -75,6 +76,7 @@ final class GitHubBrowserOAuthAuthorizerTests: XCTestCase {
                     statusCode: 200,
                     body: """
                     {
+                      "id": 42,
                       "login": "octocat"
                     }
                     """
@@ -86,7 +88,7 @@ final class GitHubBrowserOAuthAuthorizerTests: XCTestCase {
 
         let context = try await authorizer.prepareAuthorization(using: configuredOAuth())
         receiver.callbackResult = .success(
-            URL(string: "http://127.0.0.1:8123/oauth/callback?code=temp-code&state=\(context.state)")!
+            URL(string: "http://127.0.0.1:8123/callback?code=temp-code&state=\(context.state)")!
         )
 
         let credential = try await authorizer.waitForAuthorization(
@@ -96,12 +98,13 @@ final class GitHubBrowserOAuthAuthorizerTests: XCTestCase {
 
         XCTAssertEqual(
             credential,
-            GitHubCredential(
+            GitHubAppAuthorizationResult(
                 accessToken: "oauth-token",
-                source: .oauthBrowser,
+                accessTokenExpiresAt: Date(timeIntervalSince1970: 1_712_028_800),
+                refreshToken: "refresh-token",
+                refreshTokenExpiresAt: Date(timeIntervalSince1970: 1_727_897_600),
+                userID: 42,
                 login: "octocat",
-                grantedScopes: ["repo"],
-                savedAt: Date(timeIntervalSince1970: 1_712_000_000)
             )
         )
         XCTAssertEqual(requests.value.count, 2)
@@ -112,7 +115,7 @@ final class GitHubBrowserOAuthAuthorizerTests: XCTestCase {
 
     func testWaitForAuthorizationRejectsStateMismatch() async throws {
         let receiver = TestCallbackReceiver(
-            redirectURI: URL(string: "http://127.0.0.1:8123/oauth/callback")!,
+            redirectURI: URL(string: "http://127.0.0.1:8123/callback")!,
             callbackResult: .failure(GitHubBrowserOAuthError.callbackTimedOut)
         )
         let authorizer = GitHubBrowserOAuthAuthorizer(
@@ -122,7 +125,7 @@ final class GitHubBrowserOAuthAuthorizerTests: XCTestCase {
 
         let context = try await authorizer.prepareAuthorization(using: configuredOAuth())
         receiver.callbackResult = .success(
-            URL(string: "http://127.0.0.1:8123/oauth/callback?code=temp-code&state=wrong-state")!
+            URL(string: "http://127.0.0.1:8123/callback?code=temp-code&state=wrong-state")!
         )
 
         await XCTAssertThrowsErrorAsync(
@@ -137,7 +140,7 @@ final class GitHubBrowserOAuthAuthorizerTests: XCTestCase {
 
     func testWaitForAuthorizationMapsCallbackAccessDenied() async throws {
         let receiver = TestCallbackReceiver(
-            redirectURI: URL(string: "http://127.0.0.1:8123/oauth/callback")!,
+            redirectURI: URL(string: "http://127.0.0.1:8123/callback")!,
             callbackResult: .failure(GitHubBrowserOAuthError.callbackTimedOut)
         )
         let authorizer = GitHubBrowserOAuthAuthorizer(
@@ -147,7 +150,7 @@ final class GitHubBrowserOAuthAuthorizerTests: XCTestCase {
 
         let context = try await authorizer.prepareAuthorization(using: configuredOAuth())
         receiver.callbackResult = .success(
-            URL(string: "http://127.0.0.1:8123/oauth/callback?error=access_denied&error_description=User%20cancelled")!
+            URL(string: "http://127.0.0.1:8123/callback?error=access_denied&error_description=User%20cancelled")!
         )
 
         await XCTAssertThrowsErrorAsync(

@@ -63,6 +63,7 @@ final class SettingsWindowController: NSObject, SettingsPresenting {
     }
 
     func openExternalURL(_ url: URL) {
+        AuthDebugLogger.logExternalURLOpen(url)
         NSWorkspace.shared.open(url)
     }
 

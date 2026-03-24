@@ -8,10 +8,10 @@ final class StatusStoreTests: XCTestCase {
         let setupStore = TestAppSetupStore(didCompleteOnboarding: false)
         let store = StatusStore(
             workflowStore: InMemoryMonitoredWorkflowStore(),
-            credentialStore: TestCredentialStore(credential: nil),
             appSetupStore: setupStore,
             settingsPresenter: presenter,
-            oauthConfiguration: configuredOAuth()
+            authManager: TestGitHubAuthManager(configuration: configuredOAuth()),
+            promptsForIncompleteSetup: true
         )
 
         store.start()
@@ -20,14 +20,17 @@ final class StatusStoreTests: XCTestCase {
         XCTAssertEqual(presenter.showOnboardingSteps, [.welcome])
     }
 
-    func testStartShowsWorkflowStepWhenCredentialExistsButNoWorkflow() {
+    func testStartShowsWorkflowStepWhenSessionExistsButNoWorkflow() {
         let presenter = TestSettingsPresenter()
+        let authManager = TestGitHubAuthManager(
+            configuration: configuredOAuth(),
+            session: githubAppSession()
+        )
         let store = StatusStore(
             workflowStore: InMemoryMonitoredWorkflowStore(),
-            credentialStore: TestCredentialStore(credential: oauthCredential()),
             appSetupStore: TestAppSetupStore(didCompleteOnboarding: false),
             settingsPresenter: presenter,
-            oauthConfiguration: configuredOAuth()
+            authManager: authManager
         )
 
         store.start()
@@ -36,14 +39,16 @@ final class StatusStoreTests: XCTestCase {
         XCTAssertEqual(presenter.showOnboardingSteps, [.firstWorkflow])
     }
 
-    func testExistingCredentialAndWorkflowAutoCompletesOnboarding() {
+    func testExistingSessionAndWorkflowAutoCompletesOnboarding() {
         let setupStore = TestAppSetupStore(didCompleteOnboarding: false)
         let store = StatusStore(
             workflowStore: InMemoryMonitoredWorkflowStore(initialWorkflows: [sampleWorkflow()]),
-            credentialStore: TestCredentialStore(credential: oauthCredential()),
             appSetupStore: setupStore,
             settingsPresenter: TestSettingsPresenter(),
-            oauthConfiguration: configuredOAuth()
+            authManager: TestGitHubAuthManager(
+                configuration: configuredOAuth(),
+                session: githubAppSession()
+            )
         )
 
         store.start()
@@ -52,22 +57,44 @@ final class StatusStoreTests: XCTestCase {
         XCTAssertEqual(setupStore.savedValues.last, true)
     }
 
-    func testBrowserSignInPersistsCredentialOpensBrowserAndAdvancesToWorkflowStep() async {
+    func testBrowserSignInPersistsSessionOpensBrowserAndAdvancesToWorkflowStep() async {
         let presenter = TestSettingsPresenter()
         let setupStore = TestAppSetupStore(didCompleteOnboarding: false)
-        let credentialStore = TestCredentialStore(credential: nil)
-        let authorizer = TestGitHubBrowserOAuthAuthorizer(
-            context: browserAuthorizationContext(),
-            result: .success(oauthCredential())
+        let authManager = TestGitHubAuthManager(
+            configuration: configuredOAuth(),
+            preparedContext: browserAuthorizationContext(),
+            completedSession: githubAppSession()
+        )
+        let client = TestGitHubDataClient(
+            installations: [
+                GitHubInstallationSummary(
+                    id: 1,
+                    accountLogin: "octo-org",
+                    accountType: "Organization",
+                    targetType: "Organization",
+                    repositorySelection: "selected"
+                )
+            ],
+            repositoriesByInstallation: [
+                1: [
+                    GitHubAccessibleRepositorySummary(
+                        id: 101,
+                        installationID: 1,
+                        ownerLogin: "octo-org",
+                        name: "dashboard",
+                        fullName: "octo-org/dashboard",
+                        isPrivate: true,
+                        defaultBranch: "main"
+                    )
+                ]
+            ]
         )
         let store = StatusStore(
             workflowStore: InMemoryMonitoredWorkflowStore(),
-            client: EmptyWorkflowRunFetcher(),
-            credentialStore: credentialStore,
+            client: client,
             appSetupStore: setupStore,
             settingsPresenter: presenter,
-            gitHubAuthorizer: authorizer,
-            oauthConfiguration: configuredOAuth(),
+            authManager: authManager,
             promptsForIncompleteSetup: false
         )
 
@@ -76,25 +103,33 @@ final class StatusStoreTests: XCTestCase {
         store.beginGitHubSignIn()
 
         await waitForCondition {
-            credentialStore.saveCallCount == 1 && !store.isGitHubSignInBusy
+            authManager.completeAuthorizationCallCount == 1 && !store.isGitHubSignInBusy
         }
 
-        XCTAssertEqual(authorizer.preparedConfigurations.map(\.clientID), ["client-id"])
-        XCTAssertEqual(authorizer.waitedConfigurations.map(\.clientSecret), ["client-secret"])
+        XCTAssertEqual(authManager.prepareAuthorizationCallCount, 1)
         XCTAssertEqual(presenter.openedExternalURLs, [browserAuthorizationContext().authorizationURL])
-        XCTAssertEqual(store.authState, .signedInOAuth(oauthCredential().summary))
+        guard case .signedInGitHubApp(let summary) = store.authState else {
+            return XCTFail("Expected signed-in GitHub App state, got \(store.authState)")
+        }
+        XCTAssertEqual(summary.login, "octocat")
+        XCTAssertEqual(summary.selectedRepositoryCount, 1)
         XCTAssertEqual(store.onboardingStep, .firstWorkflow)
-        XCTAssertEqual(credentialStore.credential, oauthCredential())
+        XCTAssertEqual(authManager.session?.login, "octocat")
+        XCTAssertEqual(authManager.session?.selectedInstallationIDs, [1])
+        XCTAssertEqual(authManager.session?.selectedRepositoryIDs, [101])
+        XCTAssertEqual(store.accessibleRepositories.map(\.fullName), ["octo-org/dashboard"])
     }
 
     func testSavingFirstWorkflowAdvancesOnboardingToFinish() throws {
         let store = StatusStore(
             workflowStore: InMemoryMonitoredWorkflowStore(),
-            client: EmptyWorkflowRunFetcher(),
-            credentialStore: TestCredentialStore(credential: oauthCredential()),
+            client: TestGitHubDataClient(),
             appSetupStore: TestAppSetupStore(didCompleteOnboarding: false),
             settingsPresenter: TestSettingsPresenter(),
-            oauthConfiguration: configuredOAuth(),
+            authManager: TestGitHubAuthManager(
+                configuration: configuredOAuth(),
+                session: githubAppSession()
+            ),
             promptsForIncompleteSetup: false
         )
 
@@ -120,11 +155,13 @@ final class StatusStoreTests: XCTestCase {
         let setupStore = TestAppSetupStore(didCompleteOnboarding: false)
         let store = StatusStore(
             workflowStore: InMemoryMonitoredWorkflowStore(initialWorkflows: [sampleWorkflow()]),
-            client: EmptyWorkflowRunFetcher(),
-            credentialStore: TestCredentialStore(credential: oauthCredential()),
+            client: TestGitHubDataClient(),
             appSetupStore: setupStore,
             settingsPresenter: presenter,
-            oauthConfiguration: configuredOAuth(),
+            authManager: TestGitHubAuthManager(
+                configuration: configuredOAuth(),
+                session: githubAppSession()
+            ),
             promptsForIncompleteSetup: false
         )
 
@@ -143,10 +180,9 @@ final class StatusStoreTests: XCTestCase {
         let setupStore = TestAppSetupStore(didCompleteOnboarding: false)
         let store = StatusStore(
             workflowStore: InMemoryMonitoredWorkflowStore(),
-            credentialStore: TestCredentialStore(credential: nil),
             appSetupStore: setupStore,
             settingsPresenter: presenter,
-            oauthConfiguration: configuredOAuth(),
+            authManager: TestGitHubAuthManager(configuration: configuredOAuth()),
             promptsForIncompleteSetup: false
         )
 
@@ -160,12 +196,15 @@ final class StatusStoreTests: XCTestCase {
 
     func testSignOutAfterCompletionMarksSetupIncompleteAgain() {
         let setupStore = TestAppSetupStore(didCompleteOnboarding: true)
+        let authManager = TestGitHubAuthManager(
+            configuration: configuredOAuth(),
+            session: githubAppSession()
+        )
         let store = StatusStore(
             workflowStore: InMemoryMonitoredWorkflowStore(initialWorkflows: [sampleWorkflow()]),
-            credentialStore: TestCredentialStore(credential: oauthCredential()),
             appSetupStore: setupStore,
             settingsPresenter: TestSettingsPresenter(),
-            oauthConfiguration: configuredOAuth(),
+            authManager: authManager,
             promptsForIncompleteSetup: false
         )
 
@@ -174,29 +213,85 @@ final class StatusStoreTests: XCTestCase {
         XCTAssertTrue(store.shouldRouteSettingsToOnboarding)
         XCTAssertEqual(store.authState, .signedOut)
         XCTAssertEqual(setupStore.savedValues.last, false)
+        XCTAssertNil(authManager.session)
     }
 }
 
-private final class TestCredentialStore: CredentialStore, @unchecked Sendable {
-    var credential: GitHubCredential?
-    private(set) var saveCallCount = 0
+private final class TestGitHubAuthManager: GitHubAuthManaging, @unchecked Sendable {
+    let configuration: GitHubAppConfiguration?
+    var session: GitHubAppSession?
+    let preparedContext: GitHubBrowserAuthorizationContext
+    let completedSession: GitHubAppSession
+    private(set) var prepareAuthorizationCallCount = 0
+    private(set) var completeAuthorizationCallCount = 0
+    private(set) var forceRefreshCallCount = 0
 
-    init(credential: GitHubCredential?) {
-        self.credential = credential
+    init(
+        configuration: GitHubAppConfiguration?,
+        session: GitHubAppSession? = nil,
+        preparedContext: GitHubBrowserAuthorizationContext = browserAuthorizationContext(),
+        completedSession: GitHubAppSession = githubAppSession()
+    ) {
+        self.configuration = configuration
+        self.session = session
+        self.preparedContext = preparedContext
+        self.completedSession = completedSession
     }
 
-    func loadCredential() throws -> GitHubCredential? {
-        credential
+    func loadPersistedSession() throws -> GitHubAppSession? {
+        session
     }
 
-    func saveCredential(_ credential: GitHubCredential) throws {
-        saveCallCount += 1
-        self.credential = credential
+    func currentSession() -> GitHubAppSession? {
+        session
     }
 
-    func removeCredential() throws {
-        credential = nil
+    func prepareAuthorization() async throws -> GitHubBrowserAuthorizationContext {
+        prepareAuthorizationCallCount += 1
+        return preparedContext
     }
+
+    func completeAuthorization(using context: GitHubBrowserAuthorizationContext) async throws -> GitHubAppSession {
+        completeAuthorizationCallCount += 1
+        session = completedSession
+        return completedSession
+    }
+
+    func validSession() async throws -> GitHubAppSession? {
+        session
+    }
+
+    func refreshSessionIfNeeded() async throws -> GitHubAppSession? {
+        session
+    }
+
+    func forceRefreshSession() async throws -> GitHubAppSession? {
+        forceRefreshCallCount += 1
+        return session
+    }
+
+    func saveManualSession(_ session: GitHubAppSession) throws {
+        self.session = session
+    }
+
+    func updateSelections(installationIDs: [Int64], repositoryIDs: [Int64]) throws -> GitHubAppSession? {
+        guard let session else {
+            return nil
+        }
+
+        let updated = session.updatingSelections(
+            installationIDs: installationIDs,
+            repositoryIDs: repositoryIDs
+        )
+        self.session = updated
+        return updated
+    }
+
+    func disconnect() throws {
+        session = nil
+    }
+
+    func cancelAuthorization() {}
 }
 
 private final class TestAppSetupStore: AppSetupStore, @unchecked Sendable {
@@ -241,40 +336,65 @@ private final class TestSettingsPresenter: SettingsPresenting {
     }
 }
 
-private struct EmptyWorkflowRunFetcher: WorkflowRunFetching {
+private struct TestGitHubDataClient: GitHubDataFetching {
+    var installations: [GitHubInstallationSummary] = []
+    var repositoriesByInstallation: [Int64: [GitHubAccessibleRepositorySummary]] = [:]
+
+    func fetchViewer(accessToken: String) async throws -> GitHubUserProfile {
+        GitHubUserProfile(id: 1, login: "octocat")
+    }
+
+    func fetchInstallations(accessToken: String) async throws -> [GitHubInstallationSummary] {
+        installations
+    }
+
+    func fetchRepositories(
+        for installationID: Int64,
+        accessToken: String
+    ) async throws -> [GitHubAccessibleRepositorySummary] {
+        repositoriesByInstallation[installationID] ?? []
+    }
+
+    func fetchWorkflows(
+        owner: String,
+        repo: String,
+        accessToken: String
+    ) async throws -> [GitHubWorkflowSummary] {
+        []
+    }
+
     func fetchLatestRun(for workflow: MonitoredWorkflow, token: String?) async throws -> WorkflowRun? {
         nil
     }
-}
 
-private final class TestGitHubBrowserOAuthAuthorizer: GitHubBrowserOAuthAuthorizing, @unchecked Sendable {
-    let context: GitHubBrowserAuthorizationContext
-    let result: Result<GitHubCredential, Error>
-    private(set) var preparedConfigurations: [GitHubOAuthConfiguration] = []
-    private(set) var waitedConfigurations: [GitHubOAuthConfiguration] = []
-
-    init(
-        context: GitHubBrowserAuthorizationContext,
-        result: Result<GitHubCredential, Error>
-    ) {
-        self.context = context
-        self.result = result
+    func fetchJobs(
+        owner: String,
+        repo: String,
+        runID: Int64,
+        accessToken: String
+    ) async throws -> [GitHubWorkflowJob] {
+        []
     }
 
-    func prepareAuthorization(using configuration: GitHubOAuthConfiguration) async throws -> GitHubBrowserAuthorizationContext {
-        preparedConfigurations.append(configuration)
-        return context
+    func fetchJob(
+        owner: String,
+        repo: String,
+        jobID: Int64,
+        accessToken: String
+    ) async throws -> GitHubWorkflowJob {
+        GitHubWorkflowJob(
+            id: jobID,
+            runID: 1,
+            htmlURL: nil,
+            status: "completed",
+            conclusion: "success",
+            startedAt: nil,
+            completedAt: nil,
+            name: "deploy",
+            workflowName: "Deploy",
+            headBranch: "main"
+        )
     }
-
-    func waitForAuthorization(
-        using context: GitHubBrowserAuthorizationContext,
-        configuration: GitHubOAuthConfiguration
-    ) async throws -> GitHubCredential {
-        waitedConfigurations.append(configuration)
-        return try result.get()
-    }
-
-    func cancelAuthorization() {}
 }
 
 private func configuredOAuth() -> GitHubOAuthConfiguration {
@@ -287,19 +407,22 @@ private func configuredOAuth() -> GitHubOAuthConfiguration {
 private func browserAuthorizationContext() -> GitHubBrowserAuthorizationContext {
     GitHubBrowserAuthorizationContext(
         authorizationURL: URL(string: "https://github.com/login/oauth/authorize?client_id=client-id")!,
-        redirectURI: URL(string: "http://127.0.0.1:8123/oauth/callback")!,
+        redirectURI: URL(string: "http://127.0.0.1:8123/callback")!,
         state: "oauth-state",
         codeVerifier: "oauth-code-verifier",
         expiresAt: Date(timeIntervalSince1970: 1_712_000_000)
     )
 }
 
-private func oauthCredential() -> GitHubCredential {
-    GitHubCredential(
+private func githubAppSession() -> GitHubAppSession {
+    GitHubAppSession(
         accessToken: "oauth-token",
-        source: .oauthBrowser,
+        accessTokenExpiresAt: Date(timeIntervalSince1970: 1_712_028_800),
+        refreshToken: "refresh-token",
+        refreshTokenExpiresAt: Date(timeIntervalSince1970: 1_727_897_600),
+        userID: 42,
         login: "octocat",
-        grantedScopes: ["repo"],
+        source: .githubAppBrowser,
         savedAt: Date(timeIntervalSince1970: 1_712_000_000)
     )
 }

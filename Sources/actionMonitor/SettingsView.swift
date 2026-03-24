@@ -113,7 +113,7 @@ struct SettingsView: View {
                     Text("GitHub Access")
                         .font(.system(size: 22, weight: .semibold, design: .rounded))
 
-                    Text("Sign in with GitHub in your browser to monitor private repositories without managing a personal access token. The token fallback stays available for advanced cases.")
+                    Text("Sign in with your GitHub App browser flow, then choose which accessible repositories actionMonitor is allowed to monitor on this Mac.")
                         .foregroundStyle(.secondary)
                 }
 
@@ -127,9 +127,15 @@ struct SettingsView: View {
 
                 authCard
 
-                Divider()
+                if store.supportsRepositorySelection {
+                    Divider()
+                    repositoryAccessSection
+                }
 
-                personalAccessTokenSection
+                if store.showsPersonalAccessTokenFallback {
+                    Divider()
+                    personalAccessTokenSection
+                }
 
                 if let credentialMessage = store.credentialMessage {
                     InlineMessageView(
@@ -147,8 +153,8 @@ struct SettingsView: View {
         switch store.authState {
         case .signedOut:
             authCallToActionCard(
-                title: "No GitHub credential saved",
-                description: "Browser sign-in is the easiest way to connect private repositories and improve GitHub API reliability."
+                title: "No GitHub session saved",
+                description: "Browser sign-in is the recommended way to connect GitHub App access for private repositories and reliable polling."
             )
         case .authError(let message):
             VStack(alignment: .leading, spacing: 12) {
@@ -160,7 +166,7 @@ struct SettingsView: View {
 
                 authCallToActionCard(
                     title: "GitHub sign-in needs attention",
-                    description: "Start browser sign-in again, or save a personal access token below as a fallback."
+                    description: "Start browser sign-in again to restore your GitHub App session."
                 )
             }
         case .signingInBrowser(let context):
@@ -173,11 +179,11 @@ struct SettingsView: View {
                     store.cancelGitHubSignIn()
                 }
             )
-        case .signedInOAuth(let summary):
+        case .signedInGitHubApp(let summary):
             CredentialSummaryCard(
                 summary: summary,
                 title: summary.login.map { "@\($0)" } ?? "GitHub connected",
-                subtitle: "Signed in with GitHub browser OAuth.",
+                subtitle: "Signed in with a GitHub App user session.",
                 primaryButtonTitle: "Sign In Again",
                 primaryAction: {
                     store.beginGitHubSignIn()
@@ -193,7 +199,7 @@ struct SettingsView: View {
             CredentialSummaryCard(
                 summary: summary,
                 title: "Personal access token saved",
-                subtitle: "GitHub requests are authenticated with a token stored in Keychain.",
+                subtitle: "GitHub requests are authenticated with a manually managed token stored in Keychain.",
                 primaryButtonTitle: "Switch to Browser Sign-In",
                 primaryAction: {
                     store.beginGitHubSignIn()
@@ -205,6 +211,72 @@ struct SettingsView: View {
                     store.signOut()
                 }
             )
+        }
+    }
+
+    private var repositoryAccessSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Accessible Repositories")
+                        .font(.headline)
+
+                    Text("These come from `GET /user/installations` and the repositories your current GitHub App user session can access.")
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                if store.isLoadingGitHubAccess {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            }
+
+            if store.accessibleRepositories.isEmpty {
+                Text(store.isLoadingGitHubAccess
+                     ? "Loading accessible repositories…"
+                     : "No accessible repositories found yet. Install the GitHub App on an account or organization, then sign in again if needed.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else {
+                HStack(spacing: 12) {
+                    Button("Select All") {
+                        store.selectAllAccessibleRepositories()
+                    }
+
+                    Button("Clear All") {
+                        store.clearAccessibleRepositorySelection()
+                    }
+
+                    Button("Reload") {
+                        store.reloadGitHubAccess()
+                    }
+
+                    Spacer()
+                }
+
+                VStack(spacing: 10) {
+                    ForEach(store.accessibleRepositories) { repository in
+                        Toggle(isOn: Binding(
+                            get: { store.isRepositorySelected(repository.id) },
+                            set: { isSelected in
+                                store.setRepositorySelection(repository.id, isSelected: isSelected)
+                            }
+                        )) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(repository.fullName)
+                                    .font(.subheadline.weight(.semibold))
+
+                                Text("Installation #\(repository.installationID)\(repository.defaultBranch.map { " • \($0)" } ?? "")")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .toggleStyle(.checkbox)
+                    }
+                }
+            }
         }
     }
 
@@ -356,7 +428,7 @@ private struct SettingsSectionCard<Content: View>: View {
 }
 
 private struct CredentialSummaryCard: View {
-    let summary: GitHubAuthAccountSummary
+    let summary: GitHubAuthSessionSummary
     let title: String
     let subtitle: String
     let primaryButtonTitle: String
@@ -376,8 +448,12 @@ private struct CredentialSummaryCard: View {
             HStack(spacing: 14) {
                 Label(summary.source.displayName, systemImage: iconName)
 
-                if !summary.grantedScopes.isEmpty {
-                    Label(summary.grantedScopes.joined(separator: ", "), systemImage: "checklist")
+                if let accessTokenExpiresAt = summary.accessTokenExpiresAt {
+                    Label("Access expires \(accessTokenExpiresAt.formatted(date: .abbreviated, time: .shortened))", systemImage: "clock.arrow.circlepath")
+                }
+
+                if summary.selectedRepositoryCount > 0 {
+                    Label("\(summary.selectedRepositoryCount) repos selected", systemImage: "checklist")
                 }
 
                 Label("Saved \(summary.savedAt.formatted(date: .abbreviated, time: .shortened))", systemImage: "clock")
@@ -408,7 +484,7 @@ private struct CredentialSummaryCard: View {
 
     private var iconName: String {
         switch summary.source {
-        case .oauthBrowser:
+        case .githubAppBrowser:
             return "safari"
         case .personalAccessToken:
             return "key.fill"
