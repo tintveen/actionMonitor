@@ -15,6 +15,9 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "actionMonitor",
+            resources: [
+                .process("Resources"),
+            ],
             linkerSettings: [
                 // Embed app metadata so AppKit can resolve Bundle.main.bundleIdentifier.
                 .unsafeFlags([

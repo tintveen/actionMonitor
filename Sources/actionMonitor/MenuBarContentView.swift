@@ -9,50 +9,42 @@ struct MenuBarContentView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: store.showsFreshInstallAuthenticationCTA ? 0 : 4) {
-                Text("Action Monitor")
-                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+            if store.showsFreshInstallAuthenticationCTA {
+                freshInstallAuthenticationView
+            } else {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Action Monitor")
+                        .font(menuBarTitleFont)
 
-                if !store.showsFreshInstallAuthenticationCTA {
                     Text(statusSubtitle)
-                        .font(.subheadline)
+                        .font(menuBarBodyFont)
                         .foregroundStyle(.secondary)
                 }
-            }
 
-            if let bannerMessage = store.bannerMessage {
-                BannerView(message: bannerMessage)
-            }
+                if let bannerMessage = store.bannerMessage {
+                    BannerView(message: bannerMessage)
+                }
 
-            if let resetMessage = store.resetMessage {
-                BannerView(message: resetMessage)
-            }
+                if let resetMessage = store.resetMessage {
+                    BannerView(message: resetMessage)
+                }
 
-            if store.workflows.isEmpty {
-                if !store.showsFreshInstallAuthenticationCTA {
+                if store.workflows.isEmpty {
                     EmptyMenuStateView(openSettingsWindow: showSettingsWindow)
-                }
-            } else {
-                ForEach(store.states) { state in
-                    SiteStatusCard(state: state, openURL: openURL)
-                }
-            }
-
-            Divider()
-
-            HStack(spacing: 10) {
-                if store.showsFreshInstallAuthenticationCTA {
-                    Button {
-                        store.beginGitHubSignIn()
-                    } label: {
-                        Label("Authenticate with GitHub", systemImage: "safari")
-                    }
-                    .disabled(!store.gitHubSignInIsAvailable || store.isGitHubSignInBusy || store.isResetting)
                 } else {
+                    ForEach(store.states) { state in
+                        SiteStatusCard(state: state, openURL: openURL)
+                    }
+                }
+
+                Divider()
+
+                HStack(spacing: 10) {
                     Button("Refresh now") {
                         store.refreshNow()
                     }
                     .keyboardShortcut("r")
+                    .font(menuBarBodyFont)
                     .disabled(store.workflows.isEmpty)
 
                     Button {
@@ -60,19 +52,25 @@ struct MenuBarContentView: View {
                     } label: {
                         Label("Settings", systemImage: "gearshape.fill")
                     }
+                    .font(menuBarBodyFont)
                 }
 
-                Spacer(minLength: 0)
+                HStack {
+                    Spacer(minLength: 0)
 
-                Button("Quit") {
-                    NSApplication.shared.terminate(nil)
-                }
-            }
-
-            if let credentialMessage = store.credentialMessage {
-                Text(credentialMessage)
-                    .font(.footnote)
+                    Button("Quit") {
+                        NSApplication.shared.terminate(nil)
+                    }
+                    .font(menuBarBodyFont)
+                    .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
+                }
+
+                if let credentialMessage = store.credentialMessage {
+                    Text(credentialMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .padding(16)
@@ -88,6 +86,36 @@ struct MenuBarContentView: View {
         )
     }
 
+    private var freshInstallAuthenticationView: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Action Monitor")
+                .font(menuBarTitleFont)
+
+            Button {
+                store.beginGitHubSignIn()
+            } label: {
+                HStack(spacing: 10) {
+                    GitHubLogoView()
+                        .frame(width: 16, height: 16)
+
+                    Text("Authenticate with GitHub")
+                        .font(menuBarButtonFont)
+                }
+                .fixedSize(horizontal: true, vertical: false)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(MenuBarPrimaryButtonStyle())
+            .disabled(!store.gitHubSignInIsAvailable || store.isGitHubSignInBusy || store.isResetting)
+
+            Button("Quit") {
+                NSApplication.shared.terminate(nil)
+            }
+            .font(menuBarBodyFont)
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+        }
+    }
+
     private var statusSubtitle: String {
         if store.workflows.isEmpty {
             return "Add a workflow to start monitoring GitHub Actions"
@@ -95,6 +123,58 @@ struct MenuBarContentView: View {
 
         return store.isRefreshing ? "Refreshing GitHub Actions…" : "Watching your deploy workflows"
     }
+
+    private var menuBarTitleFont: Font {
+        .system(size: 13, weight: .semibold, design: .default)
+    }
+
+    private var menuBarBodyFont: Font {
+        .system(size: 13, weight: .regular, design: .default)
+    }
+
+    private var menuBarButtonFont: Font {
+        .system(size: 13, weight: .semibold, design: .default)
+    }
+}
+
+private struct MenuBarPrimaryButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(.white.opacity(isEnabled ? 1 : 0.55))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color(nsColor: .controlAccentColor).opacity(isEnabled ? (configuration.isPressed ? 0.82 : 1.0) : 0.45))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Color.white.opacity(isEnabled ? 0.16 : 0.08), lineWidth: 0.5)
+            )
+            .shadow(color: .black.opacity(isEnabled ? (configuration.isPressed ? 0.06 : 0.12) : 0.03), radius: configuration.isPressed ? 1 : 2, x: 0, y: configuration.isPressed ? 0 : 1)
+            .scaleEffect(isEnabled && configuration.isPressed ? 0.99 : 1)
+    }
+}
+
+private struct GitHubLogoView: View {
+    var body: some View {
+        Image(nsImage: Self.logoImage)
+            .resizable()
+            .scaledToFit()
+            .accessibilityHidden(true)
+    }
+
+    private static let logoImage: NSImage = {
+        guard let url = Bundle.module.url(forResource: "GitHub_Invertocat_White", withExtension: "svg"),
+              let image = NSImage(contentsOf: url) else {
+            return NSImage()
+        }
+
+        image.isTemplate = true
+        return image
+    }()
 }
 
 private struct BannerView: View {
@@ -128,7 +208,7 @@ private struct EmptyMenuStateView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("No workflows configured")
-                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .font(.system(size: 13, weight: .semibold, design: .default))
 
             Text("Open Settings and add your first GitHub Actions workflow to monitor.")
                 .font(.subheadline)
@@ -167,7 +247,7 @@ private struct SiteStatusCard: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(state.workflow.displayName)
-                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                        .font(.system(size: 13, weight: .semibold, design: .default))
 
                     Text(state.statusText)
                         .font(.subheadline)

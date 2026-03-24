@@ -6,18 +6,20 @@ import SwiftUI
 final class MenuBarStatusItemController: NSObject, ObservableObject {
     private enum Layout {
         static let iconSideLength: CGFloat = 18
-        static let popoverWidth: CGFloat = 360
+        static let standardPopoverWidth: CGFloat = 360
     }
 
     private let store: StatusStore
     private let statusItem: NSStatusItem
     private let popover: NSPopover
+    private let hostingController: NSHostingController<AnyView>
     private var cancellables: Set<AnyCancellable> = []
 
     init(store: StatusStore) {
         self.store = store
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         popover = NSPopover()
+        hostingController = NSHostingController(rootView: Self.makeRootView(store: store, dismissPopover: nil))
 
         super.init()
 
@@ -43,17 +45,7 @@ final class MenuBarStatusItemController: NSObject, ObservableObject {
     private func configurePopover() {
         popover.behavior = .transient
         popover.animates = true
-        popover.contentSize = NSSize(width: Layout.popoverWidth, height: 10)
-        popover.contentViewController = NSHostingController(
-            rootView: MenuBarContentView(
-                store: store,
-                showSettingsWindow: { [weak self] in
-                    self?.dismissPopover()
-                    self?.store.showSettings()
-                }
-            )
-            .frame(width: Layout.popoverWidth)
-        )
+        popover.contentViewController = hostingController
     }
 
     private func bindStore() {
@@ -63,6 +55,7 @@ final class MenuBarStatusItemController: NSObject, ObservableObject {
                 self?.updateStatusItem(for: status)
             }
             .store(in: &cancellables)
+
     }
 
     private func updateStatusItem(for status: DeployStatus) {
@@ -111,10 +104,46 @@ final class MenuBarStatusItemController: NSObject, ObservableObject {
         store.refreshNow()
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()
+
+        if store.showsFreshInstallAuthenticationCTA {
+            DispatchQueue.main.async { [weak self] in
+                self?.resizePopoverToFreshInstallContent()
+            }
+        }
     }
 
     private func dismissPopover() {
         popover.performClose(nil)
+    }
+
+    private func resizePopoverToFreshInstallContent() {
+        guard popover.isShown, store.showsFreshInstallAuthenticationCTA else {
+            return
+        }
+
+        hostingController.rootView = Self.makeRootView(store: store, dismissPopover: { [weak self] in
+            self?.dismissPopover()
+        })
+
+        let fittingSize = hostingController.view.fittingSize
+        let width = max(ceil(fittingSize.width), 10)
+        let height = max(ceil(fittingSize.height), 10)
+        popover.contentSize = NSSize(width: width, height: height)
+    }
+
+    private static func makeRootView(
+        store: StatusStore,
+        dismissPopover: (@MainActor @Sendable () -> Void)?
+    ) -> AnyView {
+        AnyView(
+            MenuBarContentView(
+                store: store,
+                showSettingsWindow: {
+                    dismissPopover?()
+                    store.showSettings()
+                }
+            )
+        )
     }
 
     private static var actionMonitorIconImage: NSImage {
