@@ -202,6 +202,7 @@ final class StatusStore: ObservableObject {
         }
 
         didStart = true
+        restorePersistedSession()
         refreshNow()
         beginRefreshLoop()
     }
@@ -1253,6 +1254,14 @@ final class StatusStore: ObservableObject {
         onboardingStep = nil
         resetMessage = "Reset App failed: \(error.localizedDescription)"
 
+        restorePersistedSession()
+
+        if didStart {
+            beginRefreshLoop()
+        }
+    }
+
+    private func restorePersistedSession() {
         do {
             let session = try authManager.loadPersistedSession()
             synchronizeSession(session, successMessage: nil)
@@ -1261,15 +1270,15 @@ final class StatusStore: ObservableObject {
             sessionIdentity = nil
             authState = .signedOut
             credentialMessage = CredentialStoreError.migrationRequired.localizedDescription
+            accessibleRepositories = []
+            resetWorkflowDiscoveryState()
         } catch {
             currentSession = nil
             sessionIdentity = nil
             authState = .authError(error.localizedDescription)
             credentialMessage = error.localizedDescription
-        }
-
-        if didStart {
-            beginRefreshLoop()
+            accessibleRepositories = []
+            resetWorkflowDiscoveryState()
         }
     }
 

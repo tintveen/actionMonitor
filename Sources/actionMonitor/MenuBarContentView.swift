@@ -8,69 +8,13 @@ struct MenuBarContentView: View {
     let showSettingsWindow: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        Group {
             if store.showsFreshInstallAuthenticationCTA {
                 freshInstallAuthenticationView
+            } else if store.workflows.isEmpty {
+                emptyStateMenuView
             } else {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Action Monitor")
-                        .font(menuBarTitleFont)
-
-                    Text(statusSubtitle)
-                        .font(menuBarBodyFont)
-                        .foregroundStyle(.secondary)
-                }
-
-                if let bannerMessage = store.bannerMessage {
-                    BannerView(message: bannerMessage)
-                }
-
-                if let resetMessage = store.resetMessage {
-                    BannerView(message: resetMessage)
-                }
-
-                if store.workflows.isEmpty {
-                    EmptyMenuStateView(openSettingsWindow: showSettingsWindow)
-                } else {
-                    ForEach(store.states) { state in
-                        SiteStatusCard(state: state, openURL: openURL)
-                    }
-                }
-
-                Divider()
-
-                HStack(spacing: 10) {
-                    Button("Refresh now") {
-                        store.refreshNow()
-                    }
-                    .keyboardShortcut("r")
-                    .font(menuBarBodyFont)
-                    .disabled(store.workflows.isEmpty)
-
-                    Button {
-                        showSettingsWindow()
-                    } label: {
-                        Label("Settings", systemImage: "gearshape.fill")
-                    }
-                    .font(menuBarBodyFont)
-                }
-
-                HStack {
-                    Spacer(minLength: 0)
-
-                    Button("Quit") {
-                        NSApplication.shared.terminate(nil)
-                    }
-                    .font(menuBarBodyFont)
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                }
-
-                if let credentialMessage = store.credentialMessage {
-                    Text(credentialMessage)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
+                monitoringMenuView
             }
         }
         .padding(16)
@@ -84,6 +28,132 @@ struct MenuBarContentView: View {
                 endPoint: .bottomTrailing
             )
         )
+    }
+
+    private var monitoringMenuView: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Action Monitor")
+                    .font(menuBarTitleFont)
+
+                Text(statusSubtitle)
+                    .font(menuBarBodyFont)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let bannerMessage = store.bannerMessage {
+                BannerView(message: bannerMessage)
+            }
+
+            if let resetMessage = store.resetMessage {
+                BannerView(message: resetMessage)
+            }
+
+            ForEach(store.states) { state in
+                SiteStatusCard(state: state, openURL: openURL)
+            }
+
+            Divider()
+
+            HStack(spacing: 10) {
+                Button("Refresh now") {
+                    store.refreshNow()
+                }
+                .keyboardShortcut("r")
+                .font(menuBarBodyFont)
+
+                Button {
+                    showSettingsWindow()
+                } label: {
+                    Label("Settings", systemImage: "gearshape.fill")
+                }
+                .font(menuBarBodyFont)
+            }
+
+            HStack {
+                Spacer(minLength: 0)
+
+                Button("Quit") {
+                    NSApplication.shared.terminate(nil)
+                }
+                .font(menuBarBodyFont)
+                .buttonStyle(.bordered)
+            }
+
+            if let credentialMessage = store.credentialMessage {
+                Text(credentialMessage)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var emptyStateMenuView: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("Action Monitor")
+                .font(menuBarTitleFont)
+
+            VStack(alignment: .leading, spacing: 14) {
+                Button {
+                    showSettingsWindow()
+                    store.discoverWorkflows()
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "sparkles.rectangle.stack.fill")
+                            .font(.system(size: 14, weight: .semibold))
+
+                        Text(store.isDiscoveringWorkflows ? "Discovering Workflows..." : "Discover Workflows")
+                            .font(menuBarButtonFont)
+
+                        Spacer(minLength: 12)
+
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.82))
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(MenuBarPrimaryButtonStyle())
+                .disabled(!store.canDiscoverWorkflows || store.isDiscoveringWorkflows)
+
+                if let connectionStatus = connectionStatus {
+                    MenuBarConnectionStatusView(
+                        status: connectionStatus.text,
+                        iconName: connectionStatus.iconName,
+                        tintColor: connectionStatus.tintColor
+                    )
+                }
+
+                HStack {
+                    Spacer(minLength: 0)
+
+                    Button("Quit") {
+                        NSApplication.shared.terminate(nil)
+                    }
+                    .font(menuBarBodyFont)
+                    .buttonStyle(.bordered)
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color(nsColor: .controlBackgroundColor),
+                                Color(nsColor: .underPageBackgroundColor).opacity(0.92),
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+            )
+        }
     }
 
     private var freshInstallAuthenticationView: some View {
@@ -111,8 +181,7 @@ struct MenuBarContentView: View {
                 NSApplication.shared.terminate(nil)
             }
             .font(menuBarBodyFont)
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
+            .buttonStyle(.bordered)
         }
     }
 
@@ -122,6 +191,40 @@ struct MenuBarContentView: View {
         }
 
         return store.isRefreshing ? "Refreshing GitHub Actions…" : "Watching your deploy workflows"
+    }
+
+    private var connectionStatus: (text: String, iconName: String, tintColor: Color)? {
+        switch store.authState {
+        case .signedInOAuthApp(let summary), .signedInPersonalAccessToken(let summary):
+            let loginText = summary.login.map { "@\($0)" } ?? "GitHub"
+            return (
+                text: "Connected GitHub as \(loginText).",
+                iconName: "checkmark.circle.fill",
+                tintColor: .green
+            )
+        case .signingInBrowser:
+            return (
+                text: "Connecting GitHub...",
+                iconName: "ellipsis.circle.fill",
+                tintColor: .blue
+            )
+        case .authError(let message):
+            return (
+                text: message,
+                iconName: "exclamationmark.triangle.fill",
+                tintColor: .orange
+            )
+        case .signedOut:
+            guard let credentialMessage = store.credentialMessage else {
+                return nil
+            }
+
+            return (
+                text: credentialMessage,
+                iconName: "bolt.horizontal.circle.fill",
+                tintColor: .secondary
+            )
+        }
     }
 
     private var menuBarTitleFont: Font {
@@ -202,34 +305,32 @@ private struct BannerView: View {
     }
 }
 
-private struct EmptyMenuStateView: View {
-    let openSettingsWindow: () -> Void
+private struct MenuBarConnectionStatusView: View {
+    let status: String
+    let iconName: String
+    let tintColor: Color
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("No workflows configured")
-                .font(.system(size: 13, weight: .semibold, design: .default))
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: iconName)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(tintColor)
 
-            Text("Open Settings and add your first GitHub Actions workflow to monitor.")
-                .font(.subheadline)
+            Text(status)
+                .font(.footnote)
                 .foregroundStyle(.secondary)
-
-            Button {
-                openSettingsWindow()
-            } label: {
-                Label("Add Your First Workflow", systemImage: "plus.circle.fill")
-            }
-            .buttonStyle(.link)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(14)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor))
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.white.opacity(0.035))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
         )
     }
 }

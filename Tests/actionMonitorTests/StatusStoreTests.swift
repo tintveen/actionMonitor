@@ -20,11 +20,12 @@ final class StatusStoreTests: XCTestCase {
         XCTAssertNil(store.onboardingStep)
         XCTAssertTrue(store.showsFreshInstallAuthenticationCTA)
         XCTAssertEqual(presenter.showOnboardingSteps, [])
+        XCTAssertEqual(authManager.loadPersistedSessionCallCount, 1)
         XCTAssertEqual(authManager.ensureSessionLoadedCallCount, 0)
         XCTAssertEqual(presenter.openedExternalURLs, [])
     }
 
-    func testStartDoesNotRestoreSavedSessionWhenNoWorkflowExists() {
+    func testStartRestoresSavedSessionWhenNoWorkflowExists() {
         let presenter = TestSettingsPresenter()
         let authManager = TestGitHubAuthManager(
             configuration: configuredOAuth(),
@@ -40,9 +41,10 @@ final class StatusStoreTests: XCTestCase {
         store.start()
 
         XCTAssertNil(store.onboardingStep)
-        XCTAssertTrue(store.showsFreshInstallAuthenticationCTA)
+        XCTAssertFalse(store.showsFreshInstallAuthenticationCTA)
         XCTAssertEqual(presenter.showOnboardingSteps, [])
-        XCTAssertEqual(store.authState, .signedOut)
+        XCTAssertEqual(store.authState, .signedInOAuthApp(githubOAuthSession().summary))
+        XCTAssertEqual(authManager.loadPersistedSessionCallCount, 1)
         XCTAssertEqual(authManager.ensureSessionLoadedCallCount, 0)
         XCTAssertEqual(presenter.openedExternalURLs, [])
     }
@@ -83,8 +85,33 @@ final class StatusStoreTests: XCTestCase {
         XCTAssertFalse(store.showsFreshInstallAuthenticationCTA)
         XCTAssertEqual(presenter.showOnboardingSteps, [])
         XCTAssertEqual(store.authState, .signedOut)
+        XCTAssertEqual(authManager.loadPersistedSessionCallCount, 1)
         XCTAssertEqual(authManager.ensureSessionLoadedCallCount, 0)
         XCTAssertEqual(setupStore.savedValues.last, true)
+    }
+
+    func testStartShowsReconnectMessageWhenPersistedSessionRequiresMigration() {
+        let presenter = TestSettingsPresenter()
+        let authManager = TestGitHubAuthManager(
+            configuration: configuredOAuth(),
+            loadPersistedSessionError: CredentialStoreError.migrationRequired
+        )
+        let store = StatusStore(
+            workflowStore: InMemoryMonitoredWorkflowStore(),
+            appSetupStore: TestAppSetupStore(didCompleteOnboarding: false),
+            settingsPresenter: presenter,
+            authManager: authManager,
+            promptsForIncompleteSetup: false
+        )
+
+        store.start()
+
+        XCTAssertEqual(store.authState, .signedOut)
+        XCTAssertEqual(
+            store.credentialMessage,
+            CredentialStoreError.migrationRequired.localizedDescription
+        )
+        XCTAssertEqual(authManager.loadPersistedSessionCallCount, 1)
     }
 
     func testFreshInstallAuthenticateWithGitHubOpensBrowserImmediately() async {
@@ -676,6 +703,7 @@ private final class TestGitHubAuthManager: GitHubAuthManaging, @unchecked Sendab
     let completedSession: GitHubOAuthSession
     let loadPersistedSessionError: Error?
     let ensureSessionLoadedError: Error?
+    private(set) var loadPersistedSessionCallCount = 0
     private(set) var prepareAuthorizationCallCount = 0
     private(set) var completeAuthorizationCallCount = 0
     private(set) var ensureSessionLoadedCallCount = 0
@@ -698,6 +726,8 @@ private final class TestGitHubAuthManager: GitHubAuthManaging, @unchecked Sendab
     }
 
     func loadPersistedSession() throws -> GitHubOAuthSession? {
+        loadPersistedSessionCallCount += 1
+
         if let loadPersistedSessionError {
             throw loadPersistedSessionError
         }
