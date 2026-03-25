@@ -35,6 +35,8 @@
 xattr -d com.apple.quarantine "/Applications/actionMonitor.app"
 ```
 
+The current packaged `v0.1.0` release was published without bundled shared OAuth credentials while those credentials are being re-issued. It works for public repository monitoring today; packaged private-repository browser sign-in can be re-enabled in a later rebuild once replacement shared credentials are ready.
+
 ### Homebrew cask install
 
 Once this repository and its GitHub Releases are public, install through the published tap:
