@@ -2,40 +2,56 @@
 
 ![actionMonitor icon](docs/actionMonitor-icon.svg)
 
-`actionMonitor` is a macOS menu bar app for watching GitHub Actions workflows that matter to you. Configure the workflows you want to monitor, connect GitHub in the browser, choose which accessible repositories this Mac can monitor, and get a compact status view from the menu bar.
+`actionMonitor` is a macOS menu bar app for monitoring the GitHub Actions workflows you actually care about. Sign in with GitHub in the browser, choose the repositories this Mac is allowed to inspect, and keep a compact workflow status view in the menu bar.
 
 ![actionMonitor screenshot](docs/screenshot.svg)
 
 ## Features
 
-- Monitor your own list of GitHub Actions workflows instead of a hardcoded repo list.
-- Add, edit, delete, and reorder monitored workflows from the Settings window.
-- Guide first-time users through onboarding with welcome, GitHub sign-in, first workflow setup, and a finish screen.
-- Sign in with a GitHub OAuth App browser flow for private repositories without manually pasting tokens.
-- Load the repositories your signed-in GitHub account can access, then choose which repos actionMonitor should monitor locally.
-- Watch public repositories without authentication, or use GitHub sign-in for private repos and better rate-limit behavior.
-- Keep workflow configuration on disk at `~/Library/Application Support/actionMonitor/monitored-workflows.json`.
-- Use `--demo` on macOS to launch the app with sample workflows for screenshots or manual QA.
+- Monitor your own list of workflows instead of a hardcoded repository set
+- Browser-based GitHub OAuth sign-in with PKCE and a loopback callback on `127.0.0.1`
+- Repository selection for accounts that can access many repositories
+- Guided onboarding for first launch
+- Local workflow configuration stored on disk per Mac
+- Demo mode for screenshots and manual QA
 
 ## Requirements
 
 - macOS 14 or newer
-- Xcode Command Line Tools or Xcode with Swift 6.1 support
+- Xcode 16.3+ or Swift 6.1 command line tools for source builds
 
-## Build And Install
+## Install
 
-### Install locally
+### Manual release install
+
+1. Download the latest `actionMonitor-<version>-macos.zip` from GitHub Releases.
+2. Extract `actionMonitor.app`.
+3. Move `actionMonitor.app` to `/Applications`.
+4. Launch the app.
+
+`actionMonitor` is currently distributed as an unsigned app. If Gatekeeper blocks launch, open **System Settings > Privacy & Security** and allow the app to run, or remove quarantine manually:
+
+```bash
+xattr -d com.apple.quarantine "/Applications/actionMonitor.app"
+```
+
+### Homebrew cask install
+
+This repository includes a Homebrew cask definition after packaging a release. For local verification from a clone:
+
+```bash
+brew install --cask ./Casks/actionmonitor.rb
+```
+
+If you publish the cask through a dedicated tap, use the generated `dist/actionmonitor.rb` file from `./scripts/package-release.sh` as the source of truth.
+
+### Build and install from source
 
 ```bash
 ./scripts/install-local.sh
 ```
 
 This builds a release app bundle and installs it to `/Applications/actionMonitor.app`.
-The installed app bundle includes a branded icon generated from `docs/actionMonitor-icon.svg`.
-
-Before you build a live app with GitHub sign-in enabled, set both `GitHubOAuthAppClientID` and `GitHubOAuthAppClientSecret` in `Support/Info.plist` from your GitHub OAuth App. If either value is left blank, the app will still build, but browser sign-in stays disabled.
-
-For local debugging, this plist-based setup is convenient. For a public macOS release, shipping the GitHub OAuth App client secret inside the app bundle is a known risk and should be treated as a temporary or explicitly accepted v1 tradeoff, not a clean long-term secret-management solution.
 
 ### Run from source
 
@@ -43,73 +59,111 @@ For local debugging, this plist-based setup is convenient. For a public macOS re
 swift run actionMonitor
 ```
 
-When launched this way, actionMonitor stores the GitHub session in `~/Library/Application Support/actionMonitor/github-oauth-session.json` so repeated terminal runs do not keep asking Keychain for approval. The installed app bundle still uses Keychain.
+When launched via `swift run`, `actionMonitor` stores the GitHub session in `~/Library/Application Support/actionMonitor/github-oauth-session.json` so repeated terminal runs do not keep asking Keychain for approval.
 
-### Launch demo mode
+Packaged `.app` installs use the macOS Keychain instead.
+
+### Demo mode
 
 ```bash
 swift run actionMonitor --demo
 ```
 
-## First-Run Setup
+## First-run setup
 
 1. Launch the app.
-2. The onboarding window opens automatically until setup is complete.
-3. Click `Continue` on the welcome step.
-4. In `Connect GitHub`, click `Continue in Browser`.
-5. After sign-in, open Settings and confirm the accessible repositories actionMonitor should monitor on this Mac.
-6. Add your first workflow with:
-   - Display name
-   - GitHub owner or organization
-   - Repository name
-   - Branch
-   - Workflow file name or path
-   - Optional site URL
-7. Finish onboarding, then refresh from the menu bar to fetch the latest workflow run.
+2. Complete onboarding.
+3. Choose **Continue in Browser** to sign in with GitHub.
+4. Confirm which accessible repositories this Mac can monitor.
+5. Add your first workflow manually or from discovery.
+6. Finish onboarding and refresh from the menu bar.
 
-If you skip onboarding, the app continues to work, but setup stays incomplete and onboarding will open again on the next launch.
+## GitHub access model
 
-## GitHub OAuth App Setup
+- Public repositories can be monitored without signing in.
+- Private repository access currently uses a GitHub OAuth App with authorization code flow + PKCE.
+- The app opens the system browser, listens on a temporary loopback callback such as `http://127.0.0.1:8123/callback`, validates the PKCE state, exchanges the code for a token, and stores the resulting session locally.
+- Packaged app installs store the session in Keychain. `swift run` stores the session in `~/Library/Application Support/actionMonitor/github-oauth-session.json`.
+- `actionMonitor` currently requests GitHub's `repo` scope for browser sign-in because private repository discovery and workflow polling require it. Public repository monitoring does not.
 
-1. Create or reuse a GitHub OAuth App.
-2. Set the OAuth App homepage URL to `https://github.com/tintveen/actionMonitor`.
-3. Set the authorization callback URL to `http://127.0.0.1/callback`.
-4. Leave `Enable Device Flow` off.
-5. Request the `repo` scope in the browser flow.
-6. Copy the app's client ID into `Support/Info.plist` under `GitHubOAuthAppClientID`.
-7. Copy the app's client secret into `Support/Info.plist` under `GitHubOAuthAppClientSecret`.
-8. Build or install the app again so the bundled metadata includes both values.
+## OAuth configuration for source builds
 
-During sign-in, `actionMonitor` opens the system browser, listens on a temporary loopback callback such as `http://127.0.0.1:8123/callback`, validates the returned PKCE state, exchanges the code for a GitHub OAuth access token, validates the account with `GET /user`, and stores the session locally.
+The committed `Support/Info.plist` is intentionally blank for OAuth credentials.
 
-The browser flow uses a random free loopback port at runtime while keeping the registered callback URL at `http://127.0.0.1/callback`.
+If you want private-repository access while running from source, use one of these local-only options:
 
-In local debug builds, auth diagnostics are written to stderr so you can confirm whether the client ID and client secret were detected, which callback URL was resolved, and which GitHub authorization URL the app attempted to open.
+1. Set environment variables:
 
-## GitHub Repositories Guidance
+```bash
+export ACTIONMONITOR_GITHUB_OAUTH_APP_CLIENT_ID="your-client-id"
+export ACTIONMONITOR_GITHUB_OAUTH_APP_CLIENT_SECRET="your-client-secret"
+swift run actionMonitor
+```
 
-- Public repositories usually work without authentication.
-- Private repositories work best with GitHub browser sign-in, which stores the resulting OAuth access token locally.
-- Repository access follows the signed-in user's actual GitHub access and may still be limited by org OAuth approval or SSO requirements.
-- The bundled client secret is the biggest launch risk for a public native app.
-- Any authenticated path helps avoid stricter anonymous GitHub rate limits.
+2. Or create an untracked local plist:
+
+```bash
+cp Support/Info.local.example.plist Support/Info.local.plist
+```
+
+Then fill in your GitHub OAuth App credentials locally and run the app.
+
+You can also point to a custom local plist path with `ACTIONMONITOR_GITHUB_OAUTH_INFO_PLIST=/absolute/path/to/Info.local.plist`.
+
+## Packaging a release
+
+Build the release app archive and generate Homebrew metadata:
+
+```bash
+./scripts/package-release.sh
+```
+
+This produces:
+
+- `dist/actionMonitor-<version>-macos.zip`
+- `dist/actionmonitor.rb`
+- `dist/release-metadata.txt`
+
+For release builds that should include GitHub OAuth credentials, provide them via environment variables at packaging time:
+
+```bash
+export ACTIONMONITOR_GITHUB_OAUTH_APP_CLIENT_ID="your-client-id"
+export ACTIONMONITOR_GITHUB_OAUTH_APP_CLIENT_SECRET="your-client-secret"
+./scripts/package-release.sh
+```
+
+This is a packaging convenience only. A distributed macOS app must still be treated as a public native client, and any shipped client secret should be assumed recoverable.
 
 ## Development
 
-### Run tests
+Run tests:
 
 ```bash
 swift test
 ```
 
-### Remove the local install
+Run the local secret scan:
+
+```bash
+./scripts/check-secrets.sh
+```
+
+Remove the local app install:
 
 ```bash
 ./scripts/uninstall-local.sh
 ```
 
-## Release Notes
+## Repository launch checklist
 
-- Source distribution is the supported release format for now.
-- The repository includes a macOS CI workflow that runs `swift test` on pushes and pull requests.
-- The bundled app version is currently `0.1.0`.
+- [Public launch checklist](docs/public-launch-checklist.md)
+- [Security policy](SECURITY.md)
+- [Contributing guide](CONTRIBUTING.md)
+- [Release notes template](docs/release-notes-template.md)
+
+## Current release status
+
+- Source builds are supported now
+- Release packaging automation is included in `.github/workflows/release.yml`
+- Homebrew cask metadata is generated from the packaged archive
+- The first public release is intended to be unsigned and not notarized

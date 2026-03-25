@@ -155,9 +155,12 @@ struct GitHubOAuthAppConfiguration: Equatable, Sendable {
     static let legacyClientSecretInfoDictionaryKeys = ["GitHubOAuthClientSecret", "GitHubAppClientSecret"]
     static let environmentClientIDKeys = ["ACTIONMONITOR_GITHUB_OAUTH_APP_CLIENT_ID", "GITHUB_OAUTH_APP_CLIENT_ID"]
     static let environmentClientSecretKeys = ["ACTIONMONITOR_GITHUB_OAUTH_APP_CLIENT_SECRET", "GITHUB_OAUTH_APP_CLIENT_SECRET"]
+    static let localInfoPlistEnvironmentKeys = ["ACTIONMONITOR_GITHUB_OAUTH_INFO_PLIST", "ACTIONMONITOR_LOCAL_INFO_PLIST"]
+    static let localInfoPlistFileName = "Info.local.plist"
     static let callbackHost = "127.0.0.1"
     static let callbackPath = "/callback"
-    static let missingConfigurationMessage = "GitHub sign-in is not configured for this build. Add GitHubOAuthAppClientID and GitHubOAuthAppClientSecret to Info.plist to enable it. If you recently changed Support/Info.plist, do a clean rebuild so the embedded plist updates."
+    static let requestedScopes = ["repo"]
+    static let missingConfigurationMessage = "GitHub sign-in is not configured for this build. Set ACTIONMONITOR_GITHUB_OAUTH_APP_CLIENT_ID and ACTIONMONITOR_GITHUB_OAUTH_APP_CLIENT_SECRET, or create an untracked Support/Info.local.plist from Support/Info.local.example.plist. The committed Support/Info.plist intentionally stays blank in source control."
 
     let clientID: String
     let clientSecret: String
@@ -196,8 +199,13 @@ struct GitHubOAuthAppConfiguration: Equatable, Sendable {
         clientSecretOverride: String? = nil
     ) -> GitHubOAuthAppConfiguration? {
         let bundleInfoDictionary = bundle.infoDictionary ?? [:]
-        let sourceInfoDictionary = sourceInfoDictionaryFallback()
         let environment = ProcessInfo.processInfo.environment
+        let supportDirectoryURL = supportDirectoryURL()
+        let localInfoDictionary = localInfoDictionaryFallback(
+            environment: environment,
+            supportDirectoryURL: supportDirectoryURL
+        )
+        let sourceInfoDictionary = sourceInfoDictionaryFallback(supportDirectoryURL: supportDirectoryURL)
 
         let bundledClientID = firstNonEmptyValue(
             for: [clientIDInfoDictionaryKey],
@@ -215,6 +223,14 @@ struct GitHubOAuthAppConfiguration: Equatable, Sendable {
             for: legacyClientSecretInfoDictionaryKeys,
             in: bundleInfoDictionary
         )
+        let localOverrideClientID = firstNonEmptyValue(
+            for: [clientIDInfoDictionaryKey] + legacyClientIDInfoDictionaryKeys,
+            in: localInfoDictionary
+        )
+        let localOverrideClientSecret = firstNonEmptyValue(
+            for: [clientSecretInfoDictionaryKey] + legacyClientSecretInfoDictionaryKeys,
+            in: localInfoDictionary
+        )
         let sourceClientID = firstNonEmptyValue(
             for: [clientIDInfoDictionaryKey] + legacyClientIDInfoDictionaryKeys,
             in: sourceInfoDictionary
@@ -229,11 +245,13 @@ struct GitHubOAuthAppConfiguration: Equatable, Sendable {
         let resolvedClientID = clientIDOverride ??
             bundledClientID ??
             environmentClientID ??
+            localOverrideClientID ??
             sourceClientID ??
             legacyBundledClientID
         let resolvedClientSecret = clientSecretOverride ??
             bundledClientSecret ??
             environmentClientSecret ??
+            localOverrideClientSecret ??
             sourceClientSecret ??
             legacyBundledClientSecret
 
@@ -278,18 +296,50 @@ struct GitHubOAuthAppConfiguration: Equatable, Sendable {
             .first(where: { !$0.isEmpty })
     }
 
-    private static func sourceInfoDictionaryFallback() -> [String: Any]? {
+    private static func supportDirectoryURL() -> URL? {
         #if DEBUG
         let sourceFileURL = URL(fileURLWithPath: #filePath)
         let repositoryRootURL = sourceFileURL
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        let plistURL = repositoryRootURL.appendingPathComponent("Support/Info.plist")
-        return NSDictionary(contentsOf: plistURL) as? [String: Any]
+        return repositoryRootURL.appendingPathComponent("Support", isDirectory: true)
         #else
         return nil
         #endif
+    }
+
+    private static func localInfoDictionaryFallback(
+        environment: [String: String],
+        supportDirectoryURL: URL?
+    ) -> [String: Any]? {
+        let environmentURLs = localInfoPlistEnvironmentKeys.compactMap { key -> URL? in
+            guard let value = environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !value.isEmpty else {
+                return nil
+            }
+
+            return URL(fileURLWithPath: value)
+        }
+
+        let defaultURL = supportDirectoryURL?.appendingPathComponent(localInfoPlistFileName)
+        let candidateURLs = environmentURLs + [defaultURL].compactMap { $0 }
+
+        for candidateURL in candidateURLs {
+            if let dictionary = NSDictionary(contentsOf: candidateURL) as? [String: Any] {
+                return dictionary
+            }
+        }
+
+        return nil
+    }
+
+    private static func sourceInfoDictionaryFallback(supportDirectoryURL: URL?) -> [String: Any]? {
+        guard let plistURL = supportDirectoryURL?.appendingPathComponent("Info.plist") else {
+            return nil
+        }
+
+        return NSDictionary(contentsOf: plistURL) as? [String: Any]
     }
 }
 

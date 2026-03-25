@@ -17,3 +17,6 @@ jobs:
 
       - name: Run test suite
         run: swift test
+
+      - name: Build app bundle smoke test
+        run: ./scripts/build-app.sh ./dist-ci/actionMonitor.app

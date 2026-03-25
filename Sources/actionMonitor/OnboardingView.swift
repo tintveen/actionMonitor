@@ -346,6 +346,10 @@ struct OnboardingView: View {
             Text("Use browser sign-in so the app can access your repositories without asking you to manage tokens by hand.")
                 .foregroundStyle(.secondary)
 
+            Text("Private repository access currently requires GitHub's `\(GitHubOAuthAppConfiguration.requestedScopes.joined(separator: " "))` scope. Public repositories can still be monitored without signing in.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
             HStack(spacing: 12) {
                 Button {
                     store.beginGitHubSignIn()

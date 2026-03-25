@@ -31,7 +31,10 @@ final class GitHubBrowserOAuthAuthorizerTests: XCTestCase {
         XCTAssertEqual(components?.path, "/login/oauth/authorize")
         XCTAssertEqual(queryItems["client_id"], "client-id")
         XCTAssertEqual(queryItems["redirect_uri"], "http://127.0.0.1:8123/callback")
-        XCTAssertEqual(queryItems["scope"], "repo")
+        XCTAssertEqual(
+            queryItems["scope"],
+            GitHubOAuthAppConfiguration.requestedScopes.joined(separator: " ")
+        )
         XCTAssertEqual(queryItems["prompt"], "select_account")
         XCTAssertEqual(queryItems["allow_signup"], "true")
         XCTAssertEqual(queryItems["state"], context.state)
@@ -66,7 +69,7 @@ final class GitHubBrowserOAuthAuthorizerTests: XCTestCase {
                     body: """
                     {
                       "access_token": "oauth-token",
-                      "scope": "repo"
+                      "scope": "\(GitHubOAuthAppConfiguration.requestedScopes.joined(separator: " "))"
                     }
                     """
                 )
@@ -99,7 +102,7 @@ final class GitHubBrowserOAuthAuthorizerTests: XCTestCase {
             credential,
             GitHubOAuthAuthorizationResult(
                 accessToken: "oauth-token",
-                grantedScopes: ["repo"],
+                grantedScopes: GitHubOAuthAppConfiguration.requestedScopes,
                 userID: 42,
                 login: "octocat",
             )

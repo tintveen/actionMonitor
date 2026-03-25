@@ -126,7 +126,10 @@ final class GitHubBrowserOAuthAuthorizer: GitHubBrowserOAuthAuthorizing, @unchec
             components?.queryItems = [
                 URLQueryItem(name: "client_id", value: configuration.clientID),
                 URLQueryItem(name: "redirect_uri", value: redirectURI.absoluteString),
-                URLQueryItem(name: "scope", value: "repo"),
+                URLQueryItem(
+                    name: "scope",
+                    value: GitHubOAuthAppConfiguration.requestedScopes.joined(separator: " ")
+                ),
                 URLQueryItem(name: "state", value: state),
                 URLQueryItem(name: "code_challenge", value: codeChallenge),
                 URLQueryItem(name: "code_challenge_method", value: "S256"),

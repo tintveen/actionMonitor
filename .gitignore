@@ -1,5 +1,6 @@
 .DS_Store
 /.build
+/dist
 /Packages
 xcuserdata/
 DerivedData/
@@ -8,3 +9,4 @@ DerivedData/
 .netrc
 .codex-cache/
 .codex-home/
+Support/Info.local.plist

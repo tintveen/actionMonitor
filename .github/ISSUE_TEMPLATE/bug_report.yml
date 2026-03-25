@@ -1,0 +1,47 @@
+name: Bug Report
+description: Report a reproducible problem in actionMonitor
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve actionMonitor.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the bug and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Share the smallest set of steps that reproduces the issue.
+      placeholder: |
+        1. Launch actionMonitor
+        2. Open Settings
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: actionMonitor version
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: macOS 14.7
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or screenshots
+      description: Redact tokens and secrets before sharing anything here.

@@ -1,0 +1,62 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  build-release:
+    runs-on: macos-14
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Run test suite
+        run: swift test
+
+      - name: Require OAuth release credentials for tagged releases
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          ACTIONMONITOR_GITHUB_OAUTH_APP_CLIENT_ID: ${{ secrets.ACTIONMONITOR_GITHUB_OAUTH_APP_CLIENT_ID }}
+          ACTIONMONITOR_GITHUB_OAUTH_APP_CLIENT_SECRET: ${{ secrets.ACTIONMONITOR_GITHUB_OAUTH_APP_CLIENT_SECRET }}
+        run: |
+          test -n "${ACTIONMONITOR_GITHUB_OAUTH_APP_CLIENT_ID}"
+          test -n "${ACTIONMONITOR_GITHUB_OAUTH_APP_CLIENT_SECRET}"
+
+      - name: Package release archive
+        env:
+          ACTIONMONITOR_GITHUB_OAUTH_APP_CLIENT_ID: ${{ secrets.ACTIONMONITOR_GITHUB_OAUTH_APP_CLIENT_ID }}
+          ACTIONMONITOR_GITHUB_OAUTH_APP_CLIENT_SECRET: ${{ secrets.ACTIONMONITOR_GITHUB_OAUTH_APP_CLIENT_SECRET }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: ./scripts/package-release.sh
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: actionmonitor-release-${{ github.ref_name }}
+          path: |
+            dist/actionMonitor-*-macos.zip
+            dist/actionmonitor.rb
+            dist/release-metadata.txt
+
+      - name: Create GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            dist/actionMonitor-*-macos.zip \
+            dist/actionmonitor.rb \
+            dist/release-metadata.txt \
+            --title "actionMonitor ${GITHUB_REF_NAME#v}" \
+            --notes-file docs/release-notes-template.md

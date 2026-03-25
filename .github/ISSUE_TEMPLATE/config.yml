@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security disclosures
+    url: https://github.com/tintveen/actionMonitor/security/advisories/new
+    about: Please report security issues privately using GitHub security advisories.
