@@ -2,11 +2,21 @@
 
 set -euo pipefail
 
-APP_DIR="${HOME}/Applications/actionMonitor.app"
+APP_DIRS=(
+  "/Applications/actionMonitor.app"
+  "${HOME}/Applications/actionMonitor.app"
+)
 
-if [[ -d "${APP_DIR}" ]]; then
-  echo "Removing ${APP_DIR}..."
-  rm -rf "${APP_DIR}"
-else
-  echo "App bundle not found at ${APP_DIR}"
+removed_any=false
+
+for APP_DIR in "${APP_DIRS[@]}"; do
+  if [[ -d "${APP_DIR}" ]]; then
+    echo "Removing ${APP_DIR}..."
+    rm -rf "${APP_DIR}"
+    removed_any=true
+  fi
+done
+
+if [[ "${removed_any}" == false ]]; then
+  echo "App bundle not found in /Applications or ~/Applications"
 fi

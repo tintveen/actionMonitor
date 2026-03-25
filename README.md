@@ -30,7 +30,8 @@
 ./scripts/install-local.sh
 ```
 
-This builds a release app bundle and installs it to `~/Applications/actionMonitor.app`.
+This builds a release app bundle and installs it to `/Applications/actionMonitor.app`.
+The installed app bundle includes a branded icon generated from `docs/actionMonitor-icon.svg`.
 
 Before you build a live app with GitHub sign-in enabled, set both `GitHubOAuthAppClientID` and `GitHubOAuthAppClientSecret` in `Support/Info.plist` from your GitHub OAuth App. If either value is left blank, the app will still build, but browser sign-in stays disabled.
 

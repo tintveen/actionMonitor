@@ -136,7 +136,7 @@ struct SettingsView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
-                .tint(.red)
+                .tint(Color(nsColor: .systemRed).opacity(0.7))
                 .disabled(store.isResetting)
                 .frame(maxWidth: .infinity, minHeight: 36, alignment: .center)
 

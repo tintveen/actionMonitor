@@ -4,10 +4,14 @@
 <dict>
     <key>CFBundleDisplayName</key>
     <string>actionMonitor</string>
+    <key>CFBundleIconFile</key>
+    <string>actionMonitor</string>
     <key>CFBundleExecutable</key>
     <string>actionMonitor</string>
     <key>CFBundleIdentifier</key>
     <string>com.tintveen.actionMonitor</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
     <key>CFBundleName</key>
     <string>actionMonitor</string>
     <key>CFBundleShortVersionString</key>
