@@ -401,6 +401,77 @@ final class StatusStoreTests: XCTestCase {
         XCTAssertNil(store.workflowDiscoveryMessage)
     }
 
+    func testReloadGitHubAccessHidesArchivedRepositoriesAndDefaultsSelectionToVisibleRepos() async {
+        let activeRepository = accessibleRepository(id: 101, name: "dashboard")
+        let archivedRepository = accessibleRepository(id: 202, name: "legacy-dashboard", isArchived: true)
+        let store = StatusStore(
+            workflowStore: InMemoryMonitoredWorkflowStore(),
+            client: TestGitHubDataClient(
+                accessibleRepositories: [archivedRepository, activeRepository]
+            ),
+            appSetupStore: TestAppSetupStore(didCompleteOnboarding: false),
+            settingsPresenter: TestSettingsPresenter(),
+            authManager: TestGitHubAuthManager(
+                configuration: configuredOAuth(),
+                session: githubOAuthSession(selectedRepositoryIDs: [])
+            ),
+            promptsForIncompleteSetup: false
+        )
+
+        store.reloadGitHubAccess()
+
+        await waitForCondition {
+            store.accessibleRepositories.count == 2 &&
+                store.visibleAccessibleRepositories.map(\.fullName) == ["octo-org/dashboard"] &&
+                store.selectedRepositoryIDs == [activeRepository.id]
+        }
+
+        XCTAssertEqual(store.hiddenArchivedRepositoryCount, 1)
+        XCTAssertEqual(store.selectedAccessibleRepositories.map(\.fullName), ["octo-org/dashboard"])
+    }
+
+    func testDiscoverWorkflowsSkipsArchivedRepositories() async {
+        let activeRepository = accessibleRepository(id: 101, name: "dashboard")
+        let archivedRepository = accessibleRepository(id: 202, name: "legacy-dashboard", isArchived: true)
+        let store = StatusStore(
+            workflowStore: InMemoryMonitoredWorkflowStore(),
+            client: TestGitHubDataClient(
+                accessibleRepositories: [activeRepository, archivedRepository],
+                workflowsByRepository: [
+                    "octo-org/dashboard": [
+                        GitHubWorkflowSummary(id: 201, name: "Deploy", path: ".github/workflows/deploy.yml", state: "active")
+                    ],
+                    "octo-org/legacy-dashboard": [
+                        GitHubWorkflowSummary(id: 301, name: "Legacy Deploy", path: ".github/workflows/deploy.yml", state: "active")
+                    ]
+                ]
+            ),
+            appSetupStore: TestAppSetupStore(didCompleteOnboarding: false),
+            settingsPresenter: TestSettingsPresenter(),
+            authManager: TestGitHubAuthManager(
+                configuration: configuredOAuth(),
+                session: githubOAuthSession(selectedRepositoryIDs: [activeRepository.id, archivedRepository.id])
+            ),
+            promptsForIncompleteSetup: false,
+            allowsPersonalAccessTokenFallback: true
+        )
+
+        store.reloadGitHubAccess()
+        await waitForCondition {
+            store.visibleAccessibleRepositories.count == 1 &&
+                store.selectedRepositoryIDs == [activeRepository.id]
+        }
+
+        store.discoverWorkflows()
+
+        await waitForCondition {
+            !store.isDiscoveringWorkflows && store.discoveredWorkflowSuggestions.count == 1
+        }
+
+        XCTAssertEqual(store.discoveredWorkflowSuggestions.map(\.displayName), ["Deploy"])
+        XCTAssertEqual(store.discoveredWorkflowSuggestions.map(\.repoFullName), ["octo-org/dashboard"])
+    }
+
     func testDiscoveredWorkflowSelectionBulkActionsOnlyAffectSelectableSuggestions() async {
         let repository = accessibleRepository()
         let existingWorkflow = sampleWorkflow(
@@ -1098,7 +1169,8 @@ private func accessibleRepository(
     id: Int64 = 101,
     ownerLogin: String = "octo-org",
     name: String = "dashboard",
-    defaultBranch: String? = "main"
+    defaultBranch: String? = "main",
+    isArchived: Bool = false
 ) -> GitHubAccessibleRepositorySummary {
     GitHubAccessibleRepositorySummary(
         id: id,
@@ -1107,7 +1179,8 @@ private func accessibleRepository(
         name: name,
         fullName: "\(ownerLogin)/\(name)",
         isPrivate: true,
-        defaultBranch: defaultBranch
+        defaultBranch: defaultBranch,
+        isArchived: isArchived
     )
 }
 

@@ -28,9 +28,9 @@ struct WorkflowDiscoveryReviewView: View {
                     title: "GitHub sign-in required",
                     description: "Connect GitHub to scan repositories."
                 )
-            } else if store.isLoadingGitHubAccess && store.accessibleRepositories.isEmpty {
+            } else if store.isLoadingGitHubAccess && store.visibleAccessibleRepositories.isEmpty {
                 ProgressView("Loading accessible repositories…")
-            } else if store.accessibleRepositories.isEmpty {
+            } else if store.visibleAccessibleRepositories.isEmpty {
                 discoveryEmptyState(
                     title: "No repositories found",
                     description: "Nothing is available to scan yet."

@@ -158,7 +158,7 @@ struct SettingsView: View {
             isExpanded: $isRepositoryAccessExpanded
         ) {
             VStack(alignment: .leading, spacing: 10) {
-                if store.accessibleRepositories.isEmpty {
+                if store.visibleAccessibleRepositories.isEmpty {
                     Text(store.isLoadingGitHubAccess ? "Loading repositories…" : "No repositories available.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -184,8 +184,14 @@ struct SettingsView: View {
                     }
                     .font(.footnote)
 
+                    if store.hiddenArchivedRepositoryCount > 0 {
+                        Text("\(store.hiddenArchivedRepositoryCount) archived repos hidden")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+
                     VStack(spacing: 6) {
-                        ForEach(store.accessibleRepositories) { repository in
+                        ForEach(store.visibleAccessibleRepositories) { repository in
                             RepositorySelectionRow(
                                 repository: repository,
                                 isSelected: store.isRepositorySelected(repository.id),
@@ -233,11 +239,11 @@ struct SettingsView: View {
     }
 
     private var repositoryDetailText: String {
-        if store.accessibleRepositories.isEmpty {
+        if store.visibleAccessibleRepositories.isEmpty {
             return store.isLoadingGitHubAccess ? "Loading…" : "None loaded"
         }
 
-        return "\(store.selectedAccessibleRepositories.count) of \(store.accessibleRepositories.count) selected"
+        return "\(store.selectedAccessibleRepositories.count) of \(store.visibleAccessibleRepositories.count) selected"
     }
 
     private var workflowsDiscoveryDetailText: String {

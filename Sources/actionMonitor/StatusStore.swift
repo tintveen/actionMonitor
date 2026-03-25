@@ -170,8 +170,16 @@ final class StatusStore: ObservableObject {
         currentSession?.source == .oauthBrowser
     }
 
+    var visibleAccessibleRepositories: [GitHubAccessibleRepositorySummary] {
+        accessibleRepositories.filter { !$0.isArchived }
+    }
+
+    var hiddenArchivedRepositoryCount: Int {
+        accessibleRepositories.count - visibleAccessibleRepositories.count
+    }
+
     var selectedAccessibleRepositories: [GitHubAccessibleRepositorySummary] {
-        accessibleRepositories.filter { selectedRepositoryIDs.contains($0.id) }
+        visibleAccessibleRepositories.filter { selectedRepositoryIDs.contains($0.id) }
     }
 
     var hasSelectedAccessibleRepositories: Bool {
@@ -525,7 +533,7 @@ final class StatusStore: ObservableObject {
     }
 
     func selectAllAccessibleRepositories() {
-        persistRepositorySelection(Set(accessibleRepositories.map(\.id)))
+        persistRepositorySelection(Set(visibleAccessibleRepositories.map(\.id)))
     }
 
     func clearAccessibleRepositorySelection() {
@@ -1125,11 +1133,11 @@ final class StatusStore: ObservableObject {
     }
 
     private func normalizeRepositorySelection() throws {
-        let availableRepositoryIDs = Set(accessibleRepositories.map(\.id))
+        let availableRepositoryIDs = Set(visibleAccessibleRepositories.map(\.id))
         let existingSelectedRepositoryIDs = selectedRepositoryIDs.intersection(availableRepositoryIDs)
         let nextSelectedRepositoryIDs: Set<Int64>
 
-        if existingSelectedRepositoryIDs.isEmpty && !accessibleRepositories.isEmpty {
+        if existingSelectedRepositoryIDs.isEmpty && !visibleAccessibleRepositories.isEmpty {
             nextSelectedRepositoryIDs = availableRepositoryIDs
         } else {
             nextSelectedRepositoryIDs = existingSelectedRepositoryIDs

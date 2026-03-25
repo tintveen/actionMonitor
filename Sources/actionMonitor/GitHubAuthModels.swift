@@ -122,6 +122,27 @@ struct GitHubAccessibleRepositorySummary: Codable, Equatable, Identifiable, Send
     let fullName: String
     let isPrivate: Bool
     let defaultBranch: String?
+    let isArchived: Bool
+
+    init(
+        id: Int64,
+        ownerLogin: String,
+        ownerType: String,
+        name: String,
+        fullName: String,
+        isPrivate: Bool,
+        defaultBranch: String?,
+        isArchived: Bool = false
+    ) {
+        self.id = id
+        self.ownerLogin = ownerLogin
+        self.ownerType = ownerType
+        self.name = name
+        self.fullName = fullName
+        self.isPrivate = isPrivate
+        self.defaultBranch = defaultBranch
+        self.isArchived = isArchived
+    }
 }
 
 enum GitHubAuthState: Equatable, Sendable {

@@ -428,6 +428,7 @@ private struct GitHubRepositoryPayload: Decodable {
     let owner: GitHubAccountPayload
     let isPrivate: Bool
     let defaultBranch: String?
+    let isArchived: Bool
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -436,6 +437,7 @@ private struct GitHubRepositoryPayload: Decodable {
         case owner
         case isPrivate = "private"
         case defaultBranch = "default_branch"
+        case isArchived = "archived"
     }
 
     var summary: GitHubAccessibleRepositorySummary {
@@ -446,7 +448,8 @@ private struct GitHubRepositoryPayload: Decodable {
             name: name,
             fullName: fullName,
             isPrivate: isPrivate,
-            defaultBranch: defaultBranch
+            defaultBranch: defaultBranch,
+            isArchived: isArchived
         )
     }
 }
