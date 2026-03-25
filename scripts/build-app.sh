@@ -10,6 +10,7 @@ ICON_SRC="${ROOT_DIR}/docs/actionMonitor-icon.svg"
 BASE_INFO_PLIST="${ROOT_DIR}/Support/Info.plist"
 DEFAULT_LOCAL_INFO_PLIST="${ROOT_DIR}/Support/Info.local.plist"
 BUILD_CONFIGURATION="${ACTIONMONITOR_BUILD_CONFIGURATION:-release}"
+INCLUDE_DEFAULT_LOCAL_INFO_PLIST="${ACTIONMONITOR_INCLUDE_LOCAL_OAUTH_CONFIG:-0}"
 OUTPUT_PATH="${1:-${ROOT_DIR}/dist/${APP_NAME}}"
 
 if [[ "${OUTPUT_PATH}" != /* ]]; then
@@ -49,11 +50,18 @@ copy_plist_value_if_present() {
 
 resolve_info_plist() {
   local resolved_plist="$1"
-  local local_override_plist="${ACTIONMONITOR_GITHUB_OAUTH_INFO_PLIST:-${ACTIONMONITOR_LOCAL_INFO_PLIST:-${DEFAULT_LOCAL_INFO_PLIST}}}"
+  local explicit_local_override_plist="${ACTIONMONITOR_GITHUB_OAUTH_INFO_PLIST:-${ACTIONMONITOR_LOCAL_INFO_PLIST:-}}"
+  local local_override_plist=""
 
   cp "${BASE_INFO_PLIST}" "${resolved_plist}"
 
-  if [[ -f "${local_override_plist}" ]]; then
+  if [[ -n "${explicit_local_override_plist}" ]]; then
+    local_override_plist="${explicit_local_override_plist}"
+  elif [[ "${INCLUDE_DEFAULT_LOCAL_INFO_PLIST}" == "1" ]]; then
+    local_override_plist="${DEFAULT_LOCAL_INFO_PLIST}"
+  fi
+
+  if [[ -n "${local_override_plist}" && -f "${local_override_plist}" ]]; then
     copy_plist_value_if_present "${local_override_plist}" "${resolved_plist}" "GitHubOAuthAppClientID"
     copy_plist_value_if_present "${local_override_plist}" "${resolved_plist}" "GitHubOAuthAppClientSecret"
   fi

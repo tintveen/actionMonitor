@@ -13,6 +13,7 @@ If you need private-repository access while developing, keep credentials out of 
 
 1. Copy `Support/Info.local.example.plist` to `Support/Info.local.plist`, or set `ACTIONMONITOR_GITHUB_OAUTH_APP_CLIENT_ID` and `ACTIONMONITOR_GITHUB_OAUTH_APP_CLIENT_SECRET` in your shell.
 2. Never commit `Support/Info.local.plist` or any live credentials.
+3. `./scripts/install-local.sh` will use `Support/Info.local.plist` for your local app build, but `./scripts/package-release.sh` will not read that file unless you pass an explicit plist path. This prevents accidental credential leaks in release archives.
 
 ## Before opening a pull request
 

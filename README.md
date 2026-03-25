@@ -4,7 +4,7 @@
 
 `actionMonitor` is a macOS menu bar app for monitoring the GitHub Actions workflows you actually care about. Sign in with GitHub in the browser, choose the repositories this Mac is allowed to inspect, and keep a compact workflow status view in the menu bar.
 
-![actionMonitor screenshot](docs/screenshot.svg)
+![actionMonitor screenshot](docs/screenshot.png)
 
 ## Features
 
@@ -110,6 +110,8 @@ Then fill in your GitHub OAuth App credentials locally and run the app.
 
 You can also point to a custom local plist path with `ACTIONMONITOR_GITHUB_OAUTH_INFO_PLIST=/absolute/path/to/Info.local.plist`.
 
+`./scripts/install-local.sh` opts into `Support/Info.local.plist` automatically for local app installs. `./scripts/package-release.sh` does not; release packaging only uses environment variables or an explicitly provided plist path so a contributor's local dev credentials are not baked into release artifacts by accident.
+
 ## Packaging a release
 
 Build the release app archive and generate Homebrew metadata:
@@ -131,6 +133,8 @@ export ACTIONMONITOR_GITHUB_OAUTH_APP_CLIENT_ID="your-client-id"
 export ACTIONMONITOR_GITHUB_OAUTH_APP_CLIENT_SECRET="your-client-secret"
 ./scripts/package-release.sh
 ```
+
+If you intentionally want release packaging to read a local plist instead, pass it explicitly with `ACTIONMONITOR_GITHUB_OAUTH_INFO_PLIST=/absolute/path/to/Info.local.plist`.
 
 This is a packaging convenience only. A distributed macOS app must still be treated as a public native client, and any shipped client secret should be assumed recoverable.
 

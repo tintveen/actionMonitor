@@ -1,6 +1,6 @@
 cask "actionmonitor" do
   version "0.1.0"
-  sha256 "33cd1f0befbc8ebc77d6a725d0f01419e9cbdb7dea423192cd1c9f152f3f5074"
+  sha256 "5d68ed6efc99165c9352094931137e2842c224208d16a3e64e6a5de48a16f562"
 
   url "https://github.com/tintveen/actionMonitor/releases/download/v0.1.0/actionMonitor-0.1.0-macos.zip"
   name "actionMonitor"

@@ -17,7 +17,8 @@ REPOSITORY_SLUG="${GITHUB_REPOSITORY:-tintveen/actionMonitor}"
 RELEASE_URL="https://github.com/${REPOSITORY_SLUG}/releases/download/v${VERSION}/${ARCHIVE_NAME}"
 
 mkdir -p "${DIST_DIR}"
-"${ROOT_DIR}/scripts/build-app.sh" "${APP_PATH}" >/dev/null
+ACTIONMONITOR_INCLUDE_LOCAL_OAUTH_CONFIG=0 \
+  "${ROOT_DIR}/scripts/build-app.sh" "${APP_PATH}" >/dev/null
 
 rm -f "${ARCHIVE_PATH}"
 (
