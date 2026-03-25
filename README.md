@@ -37,13 +37,14 @@ xattr -d com.apple.quarantine "/Applications/actionMonitor.app"
 
 ### Homebrew cask install
 
-This repository includes a Homebrew cask definition at `Casks/actionmonitor.rb`, and `./scripts/package-release.sh` also regenerates a release-ready copy at `dist/actionmonitor.rb`.
+Once this repository and its GitHub Releases are public, install through the published tap:
 
-To distribute `actionMonitor` through Homebrew, publish that cask from a dedicated tap such as `tintveen/homebrew-actionmonitor`, then document the final install command from that tap.
+```bash
+brew tap tintveen/actionmonitor
+brew install --cask actionmonitor
+```
 
-Until that tap exists, use the manual release install path above.
-
-Use `Casks/actionmonitor.rb` in this repository as the maintained source for the tap version.
+The tap lives at [tintveen/homebrew-actionmonitor](https://github.com/tintveen/homebrew-actionmonitor), and `Casks/actionmonitor.rb` in this repository remains the source copy used to update that tap.
 
 ### Build and install from source
 
