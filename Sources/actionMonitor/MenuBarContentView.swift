@@ -488,10 +488,7 @@ private struct SiteStatusCard: View {
             return nil
         }
 
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .short
-
-        let value = formatter.localizedString(for: timestamp, relativeTo: .now)
+        let value = UserFacingDateFormatter.relativeTimestamp(timestamp)
         if value.hasPrefix("in ") {
             return value
         }

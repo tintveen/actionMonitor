@@ -45,7 +45,7 @@ enum GitHubClientError: LocalizedError {
             return "GitHub rejected the saved session. Connect GitHub again in Settings."
         case .rateLimited(let resetAt):
             if let resetAt {
-                return "GitHub rate limit reached until \(resetAt.formatted(date: .omitted, time: .shortened))."
+                return "GitHub rate limit reached until \(UserFacingDateFormatter.shortTime(resetAt))."
             }
 
             return "GitHub rate limit reached."

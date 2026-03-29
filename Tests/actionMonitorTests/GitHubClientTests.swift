@@ -143,4 +143,13 @@ final class GitHubClientTests: XCTestCase {
         XCTAssertEqual(CombinedStatus.reduce([unknown, success]), .success)
         XCTAssertEqual(CombinedStatus.reduce([unknown]), .unknown)
     }
+
+    func testRateLimitedMessageUsesEnglishTimeFormatting() {
+        let resetAt = ISO8601DateFormatter().date(from: "2026-03-29T14:30:00Z")!
+        let expectedTime = UserFacingDateFormatter.shortTime(resetAt)
+        let message = GitHubClientError.rateLimited(resetAt: resetAt).localizedDescription
+
+        XCTAssertEqual(message, "GitHub rate limit reached until \(expectedTime).")
+        XCTAssertFalse(message.contains("bis"))
+    }
 }
