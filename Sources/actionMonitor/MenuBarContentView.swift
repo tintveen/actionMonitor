@@ -356,22 +356,27 @@ private struct MenuBarMetaCapsule: View {
 private struct SiteStatusCard: View {
     let state: DeployState
     let openURL: OpenURLAction
+    @State private var isHovered = false
 
     var body: some View {
         if let runURL = state.runURL {
             Button {
                 openURL(runURL)
             } label: {
-                cardContent
+                cardContent(isInteractive: true)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(SiteStatusCardButtonStyle(isHovered: isHovered))
+            .onHover { hovering in
+                isHovered = hovering
+            }
+            .modifier(PointingHandCursorModifier(isEnabled: true))
             .accessibilityLabel("Open run for \(state.workflow.displayName)")
         } else {
-            cardContent
+            cardContent(isInteractive: false)
         }
     }
 
-    private var cardContent: some View {
+    private func cardContent(isInteractive: Bool) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 12) {
                 ZStack {
@@ -416,12 +421,51 @@ private struct SiteStatusCard: View {
         .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color.white.opacity(0.03))
+                .fill(cardBackgroundColor(isInteractive: isInteractive))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.07), lineWidth: 1)
+                .strokeBorder(cardBorderColor(isInteractive: isInteractive), lineWidth: 1)
         )
+        .shadow(
+            color: cardShadowColor(isInteractive: isInteractive),
+            radius: isInteractive && isHovered ? 8 : 0,
+            x: 0,
+            y: isInteractive && isHovered ? 3 : 0
+        )
+        .animation(.easeOut(duration: 0.14), value: isHovered)
+    }
+
+    private func cardBackgroundColor(isInteractive: Bool) -> Color {
+        guard isInteractive else {
+            return Color.white.opacity(0.03)
+        }
+
+        if isHovered {
+            return Color(nsColor: .controlAccentColor).opacity(0.10)
+        }
+
+        return Color.white.opacity(0.03)
+    }
+
+    private func cardBorderColor(isInteractive: Bool) -> Color {
+        guard isInteractive else {
+            return Color.white.opacity(0.07)
+        }
+
+        if isHovered {
+            return Color(nsColor: .controlAccentColor).opacity(0.24)
+        }
+
+        return Color.white.opacity(0.07)
+    }
+
+    private func cardShadowColor(isInteractive: Bool) -> Color {
+        guard isInteractive && isHovered else {
+            return .clear
+        }
+
+        return .black.opacity(0.12)
     }
 
     @ViewBuilder
@@ -467,6 +511,56 @@ private struct SiteStatusCard: View {
         }
 
         return String(format: "%02d:%02d", minutes, seconds)
+    }
+}
+
+private struct SiteStatusCardButtonStyle: ButtonStyle {
+    let isHovered: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(isHovered ? (configuration.isPressed ? 0.998 : 1.004) : 1)
+            .opacity(1)
+            .brightness(0)
+            .animation(.easeOut(duration: 0.14), value: isHovered)
+    }
+}
+
+private struct PointingHandCursorModifier: ViewModifier {
+    let isEnabled: Bool
+    @State private var cursorIsActive = false
+
+    func body(content: Content) -> some View {
+        content
+            .onHover { hovering in
+                guard isEnabled else {
+                    if cursorIsActive {
+                        NSCursor.pop()
+                        cursorIsActive = false
+                    }
+                    return
+                }
+
+                if hovering {
+                    guard !cursorIsActive else {
+                        return
+                    }
+
+                    NSCursor.pointingHand.push()
+                    cursorIsActive = true
+                } else if cursorIsActive {
+                    NSCursor.pop()
+                    cursorIsActive = false
+                }
+            }
+            .onDisappear {
+                guard cursorIsActive else {
+                    return
+                }
+
+                NSCursor.pop()
+                cursorIsActive = false
+            }
     }
 }
 
