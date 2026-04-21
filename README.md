@@ -44,11 +44,11 @@ The current packaged `v0.1.0` release was published without bundled shared OAuth
 Once this repository and its GitHub Releases are public, install through the published tap:
 
 ```bash
-brew tap tintveen/actionmonitor
+brew tap tintveen/tap
 brew install --cask actionmonitor
 ```
 
-The tap lives at [tintveen/homebrew-actionmonitor](https://github.com/tintveen/homebrew-actionmonitor), and `Casks/actionmonitor.rb` in this repository remains the source copy used to update that tap.
+The published tap lives at [tintveen/homebrew-tap](https://github.com/tintveen/homebrew-tap), and `Casks/actionmonitor.rb` in this repository remains the source copy used to update that tap.
 
 ### Build and install from source
 

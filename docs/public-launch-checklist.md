@@ -20,7 +20,7 @@
 - Upload `dist/actionMonitor-<version>-macos.zip`
 - Upload `dist/actionmonitor.rb`
 - Upload `dist/release-metadata.txt`
-- Copy the generated SHA-256 into any external Homebrew tap if you move the cask there
+- Copy the generated SHA-256 into `tintveen/homebrew-tap` or any other external Homebrew tap if you move the cask there
 
 ## Post-release checks
 
